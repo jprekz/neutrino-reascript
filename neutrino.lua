@@ -15,13 +15,8 @@ function print(...)
   reaper.ShowConsoleMsg(table.concat(t, "\t") .. "\n")
 end
 
-function error(s)
-  reaper.ShowMessageBox(s, "Error: neutrino.lua", 0)
-end
-
 MusicXmlBuilder = {
   divisions = 1,
-  measure = 1,
   xml = [[<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE score-partwise PUBLIC
     "-//Recordare//DTD MusicXML 4.0 Partwise//EN"
@@ -77,7 +72,6 @@ MusicXmlBuilder = {
     if alter == 1 then
       alterXml = "<alter>1</alter>"
     end
-    duration = math.floor(duration * self.divisions + 0.5)
     self.xml =
       self.xml ..
       string.format(
@@ -96,7 +90,6 @@ MusicXmlBuilder = {
       )
   end,
   putRestNote = function(self, duration)
-    duration = math.floor(duration * self.divisions + 0.5)
     self.xml =
       self.xml ..
       string.format([[
@@ -106,12 +99,11 @@ MusicXmlBuilder = {
       </note>
       ]], duration)
   end,
-  putMeasure = function(self)
-    self.measure = self.measure + 1
+  putMeasure = function(self, measure)
     self.xml = self.xml .. string.format([[
     </measure>
     <measure number="%d">
-]], self.measure)
+]], measure)
   end,
   build = function(self)
     return self.xml .. [[
@@ -123,90 +115,104 @@ MusicXmlBuilder = {
 }
 
 function buildMusicXml()
-  item = reaper.GetSelectedMediaItem(0, 0)
+  local item = reaper.GetSelectedMediaItem(0, 0)
   if (item == nil) then
     error("No media item selected")
     return
   end
 
-  take = reaper.GetActiveTake(item)
+  local take = reaper.GetActiveTake(item)
 
-  evtcnt, notecnt, ccevtcnt, textsyxevtcnt = reaper.MIDI_CountEvts(take)
+  local evtcnt, notecnt, ccevtcnt, textsyxevtcnt = reaper.MIDI_CountEvts(take)
 
   -- get lyric
-  lyric = {}
+  local lyric = {}
   for tc = 0, textsyxevtcnt - 1 do
     local ret, _, _, ppqpos, type, msg = reaper.MIDI_GetTextSysexEvt(take, tc)
     if type == 5 then -- lyric
       lyric[ppqpos] = msg
-      print(ppqpos, msg)
     end
   end
 
-  item_st = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-  timesig_num, timesig_denom, tempo = reaper.TimeMap_GetTimeSigAtTime(proj, item_st)
-  MusicXmlBuilder:putAttributes(2, 0, timesig_num, timesig_denom)
+  local item_st = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+  local timesig_num, timesig_denom, tempo = reaper.TimeMap_GetTimeSigAtTime(0, item_st)
+  local divisions = 960
+  local measureTicks = divisions * timesig_num
+  MusicXmlBuilder:putAttributes(divisions, 0, timesig_num, timesig_denom)
   MusicXmlBuilder:putDirection(tempo)
 
   -- iter notes and build music xml
-  measure = 1
-  last_ed_qn = 0.0
+  local measure = 1
+  local last_ed = 0
   for nc = 0, notecnt - 1 do
     local _, _, _, st_ppq, ed_ppq, _, pitch, _ = reaper.MIDI_GetNote(take, nc)
-    local st_qn = reaper.MIDI_GetProjQNFromPPQPos(take, st_ppq)
-    local ed_qn = reaper.MIDI_GetProjQNFromPPQPos(take, ed_ppq)
-    if st_qn > last_ed_qn then
-      local st, ed, dur = last_ed_qn, st_qn, st_qn - last_ed_qn
-      if st >= measure * 4 then
+    local st, ed = math.floor(st_ppq + 0.5), math.floor(ed_ppq + 0.5)
+
+    if st > last_ed then
+      -- put rest note
+      local st, ed = last_ed, st
+      local dur = ed - st
+      if st >= measure * measureTicks then
         measure = measure + 1
-        MusicXmlBuilder:putMeasure()
+        MusicXmlBuilder:putMeasure(measure)
       end
       print(measure, st, ed, dur, "pau")
       MusicXmlBuilder:putRestNote(dur)
     end
-    local st, ed, dur = st_qn, ed_qn, ed_qn - st_qn
-    if st >= measure * 4 then
+
+    -- put note
+    local dur = ed - st
+    if st >= measure * measureTicks then
       measure = measure + 1
-      MusicXmlBuilder:putMeasure()
+      MusicXmlBuilder:putMeasure(measure)
     end
-    print(measure, st_ppq, ed_ppq, st, ed, dur, pitch, lyric[st_ppq])
+    print(measure, st, ed, dur, pitch, lyric[st_ppq])
     MusicXmlBuilder:putNote(dur, pitch, lyric[st_ppq])
-    last_ed_qn = ed_qn
+
+    last_ed = ed
   end
-  musicxml = MusicXmlBuilder:build()
-  return musicxml
+
+  return MusicXmlBuilder:build()
 end
 
-function writeMusicXml(musicXmlPath, musicxml)
-  file = io.open(musicxmlPath, "w")
-  io.output(file)
-  io.write(musicxml)
-  io.close(file)
+function createOutputDirectories(outputPath)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\musicxml]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\full]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\mono]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\timing]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[output]], 0)
 end
 
-function runNEUTRINO(neutrinoPath, name)
-  local musicxmlPath = neutrinoPath .. [[\score\musicxml\]] .. name .. [[.musicxml]]
-  local musicXMLtoLabelPath = neutrinoPath .. [[\bin\musicXMLtoLabel.exe]]
-  local labelFullPath = neutrinoPath .. [[\score\label\full\]] .. name .. [[.lab]]
-  local labelMonoPath = neutrinoPath .. [[\score\label\mono\]] .. name .. [[.lab]]
-  local musicXMLtoLabelOption = [[-x ]] .. neutrinoPath .. [[\settings\dic]]
+function writeMusicXml(outputPath, name, musicxml)
+  local musicxmlPath = outputPath .. [[score\musicxml\]] .. name .. [[.musicxml]]
+  print(musicxmlPath)
+  local file = io.open(musicxmlPath, "w")
+  file:write(musicxml)
+  file:close()
+end
+
+function runNEUTRINO(neutrinoPath, outputPath, name)
+  local musicxmlPath = [["]] .. outputPath .. [[score\musicxml\]] .. name .. [[.musicxml"]]
+  local musicXMLtoLabelPath = neutrinoPath .. [[bin\musicXMLtoLabel.exe]]
+  local labelFullPath = [["]] .. outputPath .. [[score\label\full\]] .. name .. [[.lab"]]
+  local labelMonoPath = [["]] .. outputPath .. [[score\label\mono\]] .. name .. [[.lab"]]
+  local musicXMLtoLabelOption = [[-x ]] .. neutrinoPath .. [[settings\dic]]
 
   local command =
     musicXMLtoLabelPath ..
     " " .. musicxmlPath .. " " .. labelFullPath .. " " .. labelMonoPath .. " " .. musicXMLtoLabelOption
   print(command)
-  if os.execute(command) == nil then
-    error("Failed to execute musicXMLtoLabel")
-    return
+  if reaper.ExecProcess(command, 0) == nil then
+    return nil, "Failed to execute musicXMLtoLabel"
   end
 
-  local neutrinoBinPath = neutrinoPath .. [[\bin\NEUTRINO.exe]]
-  local labelTimingPath = neutrinoPath .. [[\score\label\timing\]] .. name .. [[.lab]]
-  local f0OutputPath = neutrinoPath .. [[\output\]] .. name .. [[.f0]]
-  local mgcOutputPath = neutrinoPath .. [[\output\]] .. name .. [[.mgc]]
-  local bapOutputPath = neutrinoPath .. [[\output\]] .. name .. [[.bap]]
+  local neutrinoBinPath = neutrinoPath .. [[bin\NEUTRINO.exe]]
+  local labelTimingPath = [["]] .. outputPath .. [[score\label\timing\]] .. name .. [[.lab"]]
+  local f0OutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.f0"]]
+  local mgcOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.mgc"]]
+  local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
   local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
-  local modelPath = neutrinoPath .. [[\model\KIRITAN\]]
+  local modelPath = neutrinoPath .. [[model\KIRITAN\]]
   local neutrinoBinOption = [[-n 3 -k 0 -m -t]]
 
   local command =
@@ -214,49 +220,65 @@ function runNEUTRINO(neutrinoPath, name)
     " " ..
       labelFullPath .. " " .. labelTimingPath .. " " .. tempOutputPathes .. " " .. modelPath .. " " .. neutrinoBinOption
   print(command)
-  if os.execute(command) == nil then
-    error("Failed to execute NEUTRINO")
-    return
+  if reaper.ExecProcess(command, 0) == nil then
+    return nil, "Failed to execute NEUTRINO"
   end
 
-  local worldPath = neutrinoPath .. [[\bin\WORLD.exe]]
-  local outputPath = neutrinoPath .. [[\output\]] .. name .. [[_syn.wav]]
-  local worldOption = [[-f 1.0 -m 1.0 -o ]] .. outputPath .. [[ -n 3 -t]]
+  local worldPath = neutrinoPath .. [[bin\WORLD.exe]]
+  local outputFilePath = outputPath .. [[output\]] .. name .. [[_syn.wav]]
+  local worldOption = [[-f 1.0 -m 1.0 -o "]] .. outputFilePath .. [[" -n 3 -t]]
 
   local command = worldPath .. " " .. tempOutputPathes .. " " .. worldOption
   print(command)
-  if os.execute(command) == nil then
-    error("Failed to execute WORLD")
-    return
+  if reaper.ExecProcess(command, 0) == nil then
+    return nil, "Failed to execute WORLD"
   end
 
-  return outputPath
+  return outputFilePath
 end
 
 function main()
-  neutrinoPath = [[C:\path\to\NEUTRINO]]
-  name = reaper.GetProjectName(0, "")
+  local neutrinoPath = reaper.GetExtState("neutrino", "neutrinoPath")
+  local outputPath = reaper.GetProjectPath("") .. [[\NEUTRINO\]]
+  print(outputPath)
+
+  local item = reaper.GetSelectedMediaItem(0, 0)
+  if item == nil then
+    return nil, "No media item selected"
+  end
+
+  local take = reaper.GetActiveTake(item)
+
+  local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
   if name == "" then
     name = "untitled"
   end
-
-  musicxmlPath = neutrinoPath .. [[\score\musicxml\]] .. name .. [[.musicxml]]
-  print(musicxmlPath)
-
-  musicxml = buildMusicXml()
-  writeMusicXml(musicxmlPath, musicxml)
-
-  outputPath = runNEUTRINO(neutrinoPath, name)
-  if outputPath == nil then
-    return
+  if string.find(name, "%a+") == nil then
+    print("warning: 日本語を含むファイル名は使えません")
+    name = "untitled"
   end
-  print(outputPath)
+  print("ファイル名:", name)
 
-  ret = reaper.InsertMedia(outputPath, 1)
+  createOutputDirectories(outputPath)
+
+  local musicxml = buildMusicXml()
+  writeMusicXml(outputPath, name, musicxml)
+
+  local outputFilePath, err = runNEUTRINO(neutrinoPath, outputPath, name)
+  if outputFilePath == nil then
+    return nil, err
+  end
+  print(outputFilePath)
+
+  local ret = reaper.InsertMedia(outputFilePath, 1)
   if ret == nil then
-    error("Failed to load " .. outputPath)
-    return
+    return nil, "Failed to load " .. outputFilePath
   end
+
+  return 1
 end
 
-main()
+ret, err = main()
+if ret == nil then
+  reaper.ShowMessageBox(tostring(err), "Error: neutrino.lua", 0)
+end
