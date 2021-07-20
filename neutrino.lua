@@ -27,6 +27,7 @@ MusicXmlBuilder = {
     <measure number="1">
 ]],
   putAttributes = function(self, divisions, key, beats, beatType)
+    print("Attributes", divisions, key, beats, beatType)
     self.divisions = divisions
     self.xml =
       self.xml ..
@@ -45,6 +46,7 @@ MusicXmlBuilder = {
       )
   end,
   putDirection = function(self, tempo)
+    print("Direction", tempo)
     self.xml =
       self.xml ..
       string.format(
@@ -62,23 +64,33 @@ MusicXmlBuilder = {
         tempo
       )
   end,
-  putNote = function(self, duration, pitch, lyric)
+  putNote = function(self, duration, pitch, lyric, tie)
     local stepTable = {"C", "C", "D", "D", "E", "F", "F", "G", "G", "A", "A", "B"}
     local alterTable = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0}
     local step = stepTable[(pitch - 12) % 12 + 1]
     local alter = alterTable[(pitch - 12) % 12 + 1]
     local octave = math.floor((pitch - 12) / 12)
     local alterXml = ""
+    local alterText = ""
     if alter == 1 then
       alterXml = "<alter>1</alter>"
+      alterText = "#"
     end
+    local tieXml = ""
+    if tie == "start" then
+      tieXml = [[<tie type="start"/>]]
+    elseif tie == "stop" then
+      tieXml = [[<tie type="stop"/>]]
+    end
+    local pitchText = step .. alterText .. octave
+    print(duration, pitchText, lyric, tie)
     self.xml =
       self.xml ..
       string.format(
         [[
       <note>
         <pitch><step>%s</step>%s<octave>%d</octave></pitch>
-        <duration>%d</duration>
+        <duration>%d</duration>%s
         <lyric> <syllabic>single</syllabic> <text>%s</text> </lyric>
       </note>
       ]],
@@ -86,10 +98,12 @@ MusicXmlBuilder = {
         alterXml,
         octave,
         duration,
+        tieXml,
         lyric
       )
   end,
   putRestNote = function(self, duration)
+    print(duration, "", "pau")
     self.xml =
       self.xml ..
       string.format([[
@@ -100,6 +114,7 @@ MusicXmlBuilder = {
       ]], duration)
   end,
   putMeasure = function(self, measure)
+    print("measure", measure)
     self.xml = self.xml .. string.format([[
     </measure>
     <measure number="%d">
@@ -152,25 +167,46 @@ function buildMusicXml()
       -- put rest note
       local st, ed = last_ed, st
       local dur = ed - st
-      if st >= measure * measureTicks then
+      local next_measure = measure * measureTicks
+      if ed < next_measure then
+        MusicXmlBuilder:putRestNote(dur)
+      elseif ed == next_measure then
+        MusicXmlBuilder:putRestNote(dur)
         measure = measure + 1
         MusicXmlBuilder:putMeasure(measure)
+      elseif ed > next_measure then
+        local dur_1, dur_2 = next_measure - st, ed - next_measure
+        MusicXmlBuilder:putRestNote(dur_1)
+        measure = measure + 1
+        MusicXmlBuilder:putMeasure(measure)
+        MusicXmlBuilder:putRestNote(dur_2)
       end
-      print(measure, st, ed, dur, "pau")
-      MusicXmlBuilder:putRestNote(dur)
     end
 
     -- put note
     local dur = ed - st
-    if st >= measure * measureTicks then
+    local next_measure = measure * measureTicks
+    if ed < next_measure then
+      MusicXmlBuilder:putNote(dur, pitch, lyric[st_ppq])
+    elseif ed == next_measure then
+      MusicXmlBuilder:putNote(dur, pitch, lyric[st_ppq])
       measure = measure + 1
       MusicXmlBuilder:putMeasure(measure)
+    elseif ed > next_measure then
+      local dur_1, dur_2 = next_measure - st, ed - next_measure
+      MusicXmlBuilder:putNote(dur_1, pitch, lyric[st_ppq], "start")
+      measure = measure + 1
+      MusicXmlBuilder:putMeasure(measure)
+      MusicXmlBuilder:putNote(dur_2, pitch, lyric[st_ppq], "stop")
     end
-    print(measure, st, ed, dur, pitch, lyric[st_ppq])
-    MusicXmlBuilder:putNote(dur, pitch, lyric[st_ppq])
 
     last_ed = ed
   end
+
+  local next_measure = measure * measureTicks
+  local st, ed = last_ed, next_measure
+  local dur = ed - st
+  MusicXmlBuilder:putRestNote(dur)
 
   return MusicXmlBuilder:build()
 end
@@ -237,28 +273,26 @@ function runNEUTRINO(neutrinoPath, outputPath, name)
   return outputFilePath
 end
 
+function getFileName()
+  local item = reaper.GetSelectedMediaItem(0, 0)
+  if item == nil then
+    return nil, "No media item selected"
+  end
+  local take = reaper.GetActiveTake(item)
+  local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
+  if name == "" then
+    name = "untitled"
+  end
+  print("ファイル名:", name)
+  return name
+end
+
 function main()
   local neutrinoPath = reaper.GetExtState("neutrino", "neutrinoPath")
   local outputPath = reaper.GetProjectPath("") .. [[\NEUTRINO\]]
   print(outputPath)
 
-  local item = reaper.GetSelectedMediaItem(0, 0)
-  if item == nil then
-    return nil, "No media item selected"
-  end
-
-  local take = reaper.GetActiveTake(item)
-
-  local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
-  if name == "" then
-    name = "untitled"
-  end
-  if string.find(name, "%a+") == nil then
-    print("warning: 日本語を含むファイル名は使えません")
-    name = "untitled"
-  end
-  print("ファイル名:", name)
-
+  local name = getFileName()
   createOutputDirectories(outputPath)
 
   local musicxml = buildMusicXml()
