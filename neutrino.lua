@@ -1,7 +1,7 @@
 debug = true
 
 if debug then
-  reaper.ShowConsoleMsg("")
+  reaper.ClearConsole()
 end
 
 function print(...)
@@ -15,9 +15,21 @@ function print(...)
   reaper.ShowConsoleMsg(table.concat(t, "\t") .. "\n")
 end
 
-MusicXmlBuilder = {
-  divisions = 1,
-  xml = [[<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+function instance(proto)
+  local obj = {}
+  setmetatable(obj, {__index = proto})
+  return obj
+end
+
+----- MusicXmlBuilder
+
+MusicXmlBuilder = {}
+
+function MusicXmlBuilder.new()
+  local obj = instance(MusicXmlBuilder)
+  obj.divisions = 1
+  obj.xml =
+    [[<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE score-partwise PUBLIC
     "-//Recordare//DTD MusicXML 4.0 Partwise//EN"
     "http://www.musicxml.org/dtds/partwise.dtd">
@@ -25,117 +37,115 @@ MusicXmlBuilder = {
   <part-list> <score-part id="P1"> <part-name>Music</part-name> </score-part> </part-list>
   <part id="P1">
     <measure number="1">
-]],
-  putAttributes = function(self, divisions, key, beats, beatType)
-    print("Attributes", divisions, key, beats, beatType)
-    self.divisions = divisions
-    self.xml =
-      self.xml ..
-      string.format(
-        [[<attributes>
+      ]]
+  return obj
+end
+
+function MusicXmlBuilder:putAttributes(divisions, key, beats, beatType)
+  print("Attributes", divisions, key, beats, beatType)
+  self.divisions = divisions
+  self.xml =
+    self.xml ..
+    string.format(
+      [[<attributes>
         <divisions>%d</divisions>
         <key> <fifths>%d</fifths> </key>
         <time> <beats>%d</beats> <beat-type>%d</beat-type> </time>
         <clef> <sign>G</sign> <line>2</line> </clef>
       </attributes>
       ]],
-        divisions,
-        key,
-        beats,
-        beatType
-      )
-  end,
-  putDirection = function(self, tempo)
-    print("Direction", tempo)
-    self.xml =
-      self.xml ..
-      string.format(
-        [[<direction>
+      divisions,
+      key,
+      beats,
+      beatType
+    )
+end
+
+function MusicXmlBuilder:putDirection(tempo)
+  print("Direction", tempo)
+  self.xml =
+    self.xml ..
+    string.format(
+      [[<direction>
         <direction-type>
           <metronome>
             <beat-unit>quarter</beat-unit>
             <per-minute>%d</per-minute>
-            </metronome>
-          </direction-type>
+          </metronome>
+        </direction-type>
         <sound tempo="%d"/>
-        </direction>
+      </direction>
       ]],
-        tempo,
-        tempo
-      )
-  end,
-  putNote = function(self, duration, pitch, lyric, tie)
-    local stepTable = {"C", "C", "D", "D", "E", "F", "F", "G", "G", "A", "A", "B"}
-    local alterTable = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0}
-    local step = stepTable[(pitch - 12) % 12 + 1]
-    local alter = alterTable[(pitch - 12) % 12 + 1]
-    local octave = math.floor((pitch - 12) / 12)
-    local alterXml = ""
-    local alterText = ""
-    if alter == 1 then
-      alterXml = "<alter>1</alter>"
-      alterText = "#"
-    end
-    local tieXml = ""
-    if tie == "start" then
-      tieXml = [[<tie type="start"/>]]
-    elseif tie == "stop" then
-      tieXml = [[<tie type="stop"/>]]
-    end
-    local pitchText = step .. alterText .. octave
-    print(duration, pitchText, lyric, tie)
-    self.xml =
-      self.xml ..
-      string.format(
-        [[
-      <note>
+      tempo,
+      tempo
+    )
+end
+
+function MusicXmlBuilder:putNote(duration, pitch, lyric, tie)
+  local stepTable = {"C", "C", "D", "D", "E", "F", "F", "G", "G", "A", "A", "B"}
+  local alterTable = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0}
+  local step = stepTable[(pitch - 12) % 12 + 1]
+  local alter = alterTable[(pitch - 12) % 12 + 1]
+  local octave = math.floor((pitch - 12) / 12)
+  local alterXml = ""
+  local alterText = ""
+  if alter == 1 then
+    alterXml = "<alter>1</alter>"
+    alterText = "#"
+  end
+  local tieXml = ""
+  if tie == "start" then
+    tieXml = [[<tie type="start"/>]]
+  elseif tie == "stop" then
+    tieXml = [[<tie type="stop"/>]]
+  end
+  local pitchText = step .. alterText .. octave
+  print(duration, pitchText, lyric, tie)
+  self.xml =
+    self.xml ..
+    string.format(
+      [[<note>
         <pitch><step>%s</step>%s<octave>%d</octave></pitch>
         <duration>%d</duration>%s
         <lyric> <syllabic>single</syllabic> <text>%s</text> </lyric>
       </note>
       ]],
-        step,
-        alterXml,
-        octave,
-        duration,
-        tieXml,
-        lyric
-      )
-  end,
-  putRestNote = function(self, duration)
-    print(duration, "", "pau")
-    self.xml =
-      self.xml ..
-      string.format([[
-      <note>
+      step,
+      alterXml,
+      octave,
+      duration,
+      tieXml,
+      lyric
+    )
+end
+
+function MusicXmlBuilder:putRestNote(duration)
+  print(duration, "", "pau")
+  self.xml =
+    self.xml .. string.format([[<note>
         <rest/>
         <duration>%d</duration>
       </note>
       ]], duration)
-  end,
-  putMeasure = function(self, measure)
-    print("measure", measure)
-    self.xml = self.xml .. string.format([[
-    </measure>
+end
+
+function MusicXmlBuilder:putMeasure(measure)
+  print("measure", measure)
+  self.xml = self.xml .. string.format([[</measure>
     <measure number="%d">
-]], measure)
-  end,
-  build = function(self)
-    return self.xml .. [[
-    </measure>
+      ]], measure)
+end
+
+function MusicXmlBuilder:build()
+  return self.xml .. [[</measure>
   </part>
 </score-partwise>
 ]]
-  end
-}
+end
 
-function buildMusicXml()
-  local item = reaper.GetSelectedMediaItem(0, 0)
-  if (item == nil) then
-    error("No media item selected")
-    return
-  end
+-----
 
+function buildMusicXml(item)
   local take = reaper.GetActiveTake(item)
 
   local evtcnt, notecnt, ccevtcnt, textsyxevtcnt = reaper.MIDI_CountEvts(take)
@@ -149,12 +159,14 @@ function buildMusicXml()
     end
   end
 
+  local builder = MusicXmlBuilder.new()
+
   local item_st = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
   local timesig_num, timesig_denom, tempo = reaper.TimeMap_GetTimeSigAtTime(0, item_st)
   local divisions = 960
   local measureTicks = divisions * timesig_num
-  MusicXmlBuilder:putAttributes(divisions, 0, timesig_num, timesig_denom)
-  MusicXmlBuilder:putDirection(tempo)
+  builder:putAttributes(divisions, 0, timesig_num, timesig_denom)
+  builder:putDirection(tempo)
 
   -- iter notes and build music xml
   local measure = 1
@@ -169,17 +181,17 @@ function buildMusicXml()
       local dur = ed - st
       local next_measure = measure * measureTicks
       if ed < next_measure then
-        MusicXmlBuilder:putRestNote(dur)
+        builder:putRestNote(dur)
       elseif ed == next_measure then
-        MusicXmlBuilder:putRestNote(dur)
+        builder:putRestNote(dur)
         measure = measure + 1
-        MusicXmlBuilder:putMeasure(measure)
+        builder:putMeasure(measure)
       elseif ed > next_measure then
         local dur_1, dur_2 = next_measure - st, ed - next_measure
-        MusicXmlBuilder:putRestNote(dur_1)
+        builder:putRestNote(dur_1)
         measure = measure + 1
-        MusicXmlBuilder:putMeasure(measure)
-        MusicXmlBuilder:putRestNote(dur_2)
+        builder:putMeasure(measure)
+        builder:putRestNote(dur_2)
       end
     end
 
@@ -187,17 +199,17 @@ function buildMusicXml()
     local dur = ed - st
     local next_measure = measure * measureTicks
     if ed < next_measure then
-      MusicXmlBuilder:putNote(dur, pitch, lyric[st_ppq])
+      builder:putNote(dur, pitch, lyric[st_ppq])
     elseif ed == next_measure then
-      MusicXmlBuilder:putNote(dur, pitch, lyric[st_ppq])
+      builder:putNote(dur, pitch, lyric[st_ppq])
       measure = measure + 1
-      MusicXmlBuilder:putMeasure(measure)
+      builder:putMeasure(measure)
     elseif ed > next_measure then
       local dur_1, dur_2 = next_measure - st, ed - next_measure
-      MusicXmlBuilder:putNote(dur_1, pitch, lyric[st_ppq], "start")
+      builder:putNote(dur_1, pitch, lyric[st_ppq], "start")
       measure = measure + 1
-      MusicXmlBuilder:putMeasure(measure)
-      MusicXmlBuilder:putNote(dur_2, pitch, lyric[st_ppq], "stop")
+      builder:putMeasure(measure)
+      builder:putNote(dur_2, pitch, lyric[st_ppq], "stop")
     end
 
     last_ed = ed
@@ -206,9 +218,9 @@ function buildMusicXml()
   local next_measure = measure * measureTicks
   local st, ed = last_ed, next_measure
   local dur = ed - st
-  MusicXmlBuilder:putRestNote(dur)
+  builder:putRestNote(dur)
 
-  return MusicXmlBuilder:build()
+  return builder:build()
 end
 
 function createOutputDirectories(outputPath)
@@ -273,11 +285,7 @@ function runNEUTRINO(neutrinoPath, outputPath, name)
   return outputFilePath
 end
 
-function getFileName()
-  local item = reaper.GetSelectedMediaItem(0, 0)
-  if item == nil then
-    return nil, "No media item selected"
-  end
+function getFileName(item)
   local take = reaper.GetActiveTake(item)
   local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
   if name == "" then
@@ -292,10 +300,18 @@ function main()
   local outputPath = reaper.GetProjectPath("") .. [[\NEUTRINO\]]
   print(outputPath)
 
-  local name = getFileName()
-  createOutputDirectories(outputPath)
+  local item = reaper.GetSelectedMediaItem(0, 0)
+  if item == nil then
+    return nil, "No media item selected"
+  end
 
-  local musicxml = buildMusicXml()
+  local musicxml, err = buildMusicXml(item)
+  if musicxml == nil then
+    return nil, err
+  end
+
+  local name = getFileName(item)
+  createOutputDirectories(outputPath)
   writeMusicXml(outputPath, name, musicxml)
 
   local outputFilePath, err = runNEUTRINO(neutrinoPath, outputPath, name)
