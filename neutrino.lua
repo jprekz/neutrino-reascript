@@ -98,6 +98,8 @@ function MusicXmlBuilder:putNote(duration, pitch, lyric, tie)
     tieXml = [[<tie type="start"/>]]
   elseif tie == "stop" then
     tieXml = [[<tie type="stop"/>]]
+  elseif tie == "stop_start" then
+    tieXml = [[<tie type="stop"/><tie type="start"/>]]
   end
   local pitchText = step .. alterText .. octave
   print(duration, pitchText, lyric, tie)
@@ -179,6 +181,7 @@ function buildMusicXml(item)
       -- put rest note
       local st, ed = last_ed, st
       local dur = ed - st
+      ::rest_note_continue::
       local next_measure = measure * measureTicks
       if ed < next_measure then
         builder:putRestNote(dur)
@@ -187,29 +190,41 @@ function buildMusicXml(item)
         measure = measure + 1
         builder:putMeasure(measure)
       elseif ed > next_measure then
-        local dur_1, dur_2 = next_measure - st, ed - next_measure
-        builder:putRestNote(dur_1)
+        dur = next_measure - st
+        builder:putRestNote(dur)
         measure = measure + 1
         builder:putMeasure(measure)
-        builder:putRestNote(dur_2)
+        st = next_measure
+        dur = ed - st
+        goto rest_note_continue
       end
     end
 
     -- put note
     local dur = ed - st
+    local tie = nil
+    ::note_continue::
     local next_measure = measure * measureTicks
     if ed < next_measure then
-      builder:putNote(dur, pitch, lyric[st_ppq])
+      builder:putNote(dur, pitch, lyric[st_ppq], tie)
     elseif ed == next_measure then
-      builder:putNote(dur, pitch, lyric[st_ppq])
+      builder:putNote(dur, pitch, lyric[st_ppq], tie)
       measure = measure + 1
       builder:putMeasure(measure)
     elseif ed > next_measure then
-      local dur_1, dur_2 = next_measure - st, ed - next_measure
-      builder:putNote(dur_1, pitch, lyric[st_ppq], "start")
+      dur = next_measure - st
+      if tie == "stop" then
+        tie = "stop_start"
+      else
+        tie = "start"
+      end
+      builder:putNote(dur, pitch, lyric[st_ppq], tie)
       measure = measure + 1
       builder:putMeasure(measure)
-      builder:putNote(dur_2, pitch, lyric[st_ppq], "stop")
+      st = next_measure
+      dur = ed - st
+      tie = "stop"
+      goto note_continue
     end
 
     last_ed = ed
