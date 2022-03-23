@@ -21,7 +21,7 @@ function instance(proto)
   return obj
 end
 
------ MusicXmlBuilder
+----- MusicXml
 
 MusicXmlBuilder = {}
 
@@ -145,8 +145,6 @@ function MusicXmlBuilder:build()
 ]]
 end
 
------
-
 function buildMusicXml(item)
   local take = reaper.GetActiveTake(item)
 
@@ -238,6 +236,8 @@ function buildMusicXml(item)
   return builder:build()
 end
 
+----- NEUTRINO
+
 function createOutputDirectories(outputPath)
   reaper.RecursiveCreateDirectory(outputPath .. [[score\musicxml]], 0)
   reaper.RecursiveCreateDirectory(outputPath .. [[score\label\full]], 0)
@@ -254,13 +254,12 @@ function writeMusicXml(outputPath, name, musicxml)
   file:close()
 end
 
-function runNEUTRINO(neutrinoPath, outputPath, name)
+function runMusicXMLtoLabel(neutrinoPath, outputPath, name)
   local musicxmlPath = [["]] .. outputPath .. [[score\musicxml\]] .. name .. [[.musicxml"]]
   local musicXMLtoLabelPath = neutrinoPath .. [[bin\musicXMLtoLabel.exe]]
   local labelFullPath = [["]] .. outputPath .. [[score\label\full\]] .. name .. [[.lab"]]
   local labelMonoPath = [["]] .. outputPath .. [[score\label\mono\]] .. name .. [[.lab"]]
   local musicXMLtoLabelOption = [[-x ]] .. neutrinoPath .. [[settings\dic]]
-
   local command =
     musicXMLtoLabelPath ..
     " " .. musicxmlPath .. " " .. labelFullPath .. " " .. labelMonoPath .. " " .. musicXMLtoLabelOption
@@ -268,16 +267,19 @@ function runNEUTRINO(neutrinoPath, outputPath, name)
   if reaper.ExecProcess(command, 0) == nil then
     return nil, "Failed to execute musicXMLtoLabel"
   end
+  return 1
+end
 
+function runNEUTRINO(neutrinoPath, outputPath, name, modelDir)
   local neutrinoBinPath = neutrinoPath .. [[bin\NEUTRINO.exe]]
+  local labelFullPath = [["]] .. outputPath .. [[score\label\full\]] .. name .. [[.lab"]]
   local labelTimingPath = [["]] .. outputPath .. [[score\label\timing\]] .. name .. [[.lab"]]
   local f0OutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.f0"]]
   local mgcOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.mgc"]]
   local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
   local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
-  local modelPath = neutrinoPath .. [[model\KIRITAN\]]
+  local modelPath = neutrinoPath .. [[model\]] .. modelDir .. [[\]]
   local neutrinoBinOption = [[-n 3 -k 0 -m -t]]
-
   local command =
     neutrinoBinPath ..
     " " ..
@@ -286,19 +288,26 @@ function runNEUTRINO(neutrinoPath, outputPath, name)
   if reaper.ExecProcess(command, 0) == nil then
     return nil, "Failed to execute NEUTRINO"
   end
+  return 1
+end
 
+function runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift)
   local worldPath = neutrinoPath .. [[bin\WORLD.exe]]
+  local f0OutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.f0"]]
+  local mgcOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.mgc"]]
+  local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
+  local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
   local outputFilePath = outputPath .. [[output\]] .. name .. [[_syn.wav]]
-  local worldOption = [[-f 1.0 -m 1.0 -o "]] .. outputFilePath .. [[" -n 3 -t]]
-
+  local worldOption = string.format([[-f %.2f -m %.2f -o "%s" -n 3 -t]], pitchShift, formantShift, outputFilePath)
   local command = worldPath .. " " .. tempOutputPathes .. " " .. worldOption
   print(command)
   if reaper.ExecProcess(command, 0) == nil then
     return nil, "Failed to execute WORLD"
   end
-
   return outputFilePath
 end
+
+----- main
 
 function getFileName(item)
   local take = reaper.GetActiveTake(item)
@@ -312,6 +321,11 @@ end
 
 function main()
   local neutrinoPath = reaper.GetExtState("neutrino", "neutrinoPath")
+  local modelDir = reaper.GetExtState("neutrino", "modelDir")
+  if modelDir == "" then
+    modelDir = "KIRITAN"
+  end
+
   local outputPath = reaper.GetProjectPath("") .. [[\NEUTRINO\]]
   print(outputPath)
 
@@ -329,7 +343,17 @@ function main()
   createOutputDirectories(outputPath)
   writeMusicXml(outputPath, name, musicxml)
 
-  local outputFilePath, err = runNEUTRINO(neutrinoPath, outputPath, name)
+  local ret, err = runMusicXMLtoLabel(neutrinoPath, outputPath, name)
+  if ret == nil then
+    return nil, err
+  end
+  local ret, err = runNEUTRINO(neutrinoPath, outputPath, name, modelDir)
+  if ret == nil then
+    return nil, err
+  end
+  local pitchShift = 1.0
+  local formantShift = 1.0
+  local outputFilePath, err = runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift)
   if outputFilePath == nil then
     return nil, err
   end
