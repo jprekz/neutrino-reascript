@@ -1,3 +1,5 @@
+----- common
+
 debug = true
 
 if debug then
@@ -15,8 +17,8 @@ function print(...)
   reaper.ShowConsoleMsg(table.concat(t, "\t") .. "\n")
 end
 
-function instance(proto)
-  local obj = {}
+function instance(proto, obj)
+  local obj = obj or {}
   setmetatable(obj, {__index = proto})
   return obj
 end
@@ -236,7 +238,7 @@ function buildMusicXml(item)
   return builder:build()
 end
 
------ NEUTRINO
+----- NEUTRINO run
 
 function createOutputDirectories(outputPath)
   reaper.RecursiveCreateDirectory(outputPath .. [[score\musicxml]], 0)
@@ -307,8 +309,6 @@ function runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift)
   return outputFilePath
 end
 
------ main
-
 function getFileName(item)
   local take = reaper.GetActiveTake(item)
   local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
@@ -319,13 +319,14 @@ function getFileName(item)
   return name
 end
 
-function main()
+function runAll()
   local neutrinoPath = reaper.GetExtState("neutrino", "neutrinoPath")
   local modelDir = reaper.GetExtState("neutrino", "modelDir")
   if modelDir == "" then
     modelDir = "KIRITAN"
   end
 
+  --
   local outputPath = reaper.GetProjectPath("") .. [[\NEUTRINO\]]
   print(outputPath)
 
@@ -367,7 +368,177 @@ function main()
   return 1
 end
 
-ret, err = main()
-if ret == nil then
-  reaper.ShowMessageBox(tostring(err), "Error: neutrino.lua", 0)
+----- NEUTRINO env
+
+_neutrinoPath = reaper.GetExtState("neutrino", "neutrinoPath")
+_modelDir = reaper.GetExtState("neutrino", "modelDir")
+if _modelDir == "" then
+  _modelDir = "KIRITAN"
 end
+
+function selectModel()
+  local list = {}
+  for i = 0, math.huge do
+    local s = reaper.EnumerateSubdirectories(_neutrinoPath .. [[model\]], i)
+    if s then
+      list[i + 1] = s
+    else
+      break
+    end
+  end
+  local t = gfx.showmenu(table.concat(list, "|"))
+  if t ~= 0 then
+    _modelDir = tostring(list[t])
+    reaper.SetExtState("neutrino", "modelDir", _modelDir, true)
+  end
+end
+
+function selectNeutrinoPath()
+  local retval, folder = reaper.JS_Dialog_BrowseForFolder("test", "")
+  if retval == 1 then
+    _neutrinoPath = folder .. "\\"
+  end
+
+  checkNeutrinoAvailable()
+end
+
+function checkNeutrinoAvailable()
+  local musicXMLtoLabelPath = _neutrinoPath .. [[bin\musicXMLtoLabel.exe]]
+  local neutrinoBinPath = _neutrinoPath .. [[bin\NEUTRINO.exe]]
+  local worldPath = _neutrinoPath .. [[bin\WORLD.exe]]
+  _neutrinoAvailable =
+    reaper.file_exists(musicXMLtoLabelPath) and reaper.file_exists(neutrinoBinPath) and reaper.file_exists(worldPath)
+end
+checkNeutrinoAvailable()
+
+----- GUI common
+
+gfx.init(
+  "Neutrino",
+  tonumber(reaper.GetExtState("neutrino", "wndw")) or 800,
+  tonumber(reaper.GetExtState("neutrino", "wndh")) or 600,
+  tonumber(reaper.GetExtState("neutrino", "dock")) or 0,
+  tonumber(reaper.GetExtState("neutrino", "wndx")) or 100,
+  tonumber(reaper.GetExtState("neutrino", "wndy")) or 100
+)
+
+function quit()
+  local d, x, y, w, h = gfx.dock(-1, 0, 0, 0, 0)
+  reaper.SetExtState("neutrino", "wndw", w, true)
+  reaper.SetExtState("neutrino", "wndh", h, true)
+  reaper.SetExtState("neutrino", "dock", d, true)
+  reaper.SetExtState("neutrino", "wndx", x, true)
+  reaper.SetExtState("neutrino", "wndy", y, true)
+  gfx.quit()
+end
+reaper.atexit(quit)
+
+gfx.setfont(1, "Verdana", 16)
+
+function setCol(col)
+  local r = col[1] / 255
+  local g = col[2] / 255
+  local b = col[3] / 255
+  local a = 1
+  if col[4] ~= nil then
+    a = col[4] / 255
+  end
+  gfx.set(r, g, b, a)
+end
+
+function setPos(x, y)
+  gfx.x, gfx.y = x, y
+end
+
+Element = {objects = {}}
+function Element:new(obj)
+  local obj = instance(self, obj)
+  Element.objects[#Element.objects + 1] = obj
+  return obj
+end
+function Element:call(event)
+  for _, obj in pairs(Element.objects) do
+    if obj[event] ~= nil then
+      obj[event](obj)
+    end
+  end
+end
+function Element:update()
+  if self.bind then
+    for key, value in pairs(self.bind) do
+      self[key] = _G[value]
+    end
+  end
+end
+function Element:hitTest()
+  return self.x <= gfx.mouse_x and gfx.mouse_x <= self.x + self.w and self.y <= gfx.mouse_y and
+    gfx.mouse_y <= self.y + self.h
+end
+
+Button = instance(Element)
+function Button:draw()
+  gfx.rect(self.x, self.y, self.w, self.h, false)
+  setPos(self.x, self.y)
+  gfx.drawstr(tostring(self.str), 5, self.x + self.w, self.y + self.h)
+end
+function Button:mouseDown()
+  if self:hitTest() then
+    self.mouse_hold = true
+  end
+end
+function Button:mouseUp()
+  if self:hitTest() and self.mouse_hold and self.click then
+    self:click()
+  end
+  self.mouse_hold = false
+end
+
+----- GUI run
+
+Button:new({x = 10, y = 10, w = 200, h = 20, bind = {str = "_neutrinoPath"}, click = selectNeutrinoPath})
+Button:new({x = 10, y = 40, w = 40, h = 20, bind = {str = "_neutrinoAvailable"}})
+Button:new({x = 10, y = 70, w = 100, h = 20, bind = {str = "_modelDir"}, click = selectModel})
+Button:new(
+  {
+    x = 10,
+    y = 100,
+    w = 40,
+    h = 20,
+    str = "run",
+    click = function()
+      ret, err = runAll()
+      if ret == nil then
+        reaper.ShowMessageBox(tostring(err), "Error: neutrino.lua", 0)
+      end
+    end
+  }
+)
+
+function runloop()
+  local mousedown = gfx.mouse_cap & 1
+  if mousedown ~= _mousedown then
+    _redraw = true
+    if mousedown ~= 0 then
+      Element:call("mouseDown")
+    else
+      Element:call("mouseUp")
+    end
+  end
+  _mousedown = mousedown
+
+  if _redraw then
+    setCol({255, 255, 255})
+    Element:call("update")
+    Element:call("draw")
+    _redraw = false
+  end
+
+  gfx.update()
+  local c = gfx.getchar()
+  if c >= 0 then
+    reaper.runloop(runloop)
+  end
+end
+_redraw = true
+
+runloop()
