@@ -111,6 +111,28 @@ function Slider:new(obj)
   SliderKnob:new({parent = obj, x = obj.x, y = obj.y, w = 10, h = obj.h})
   return obj
 end
+function Slider:update()
+  if self:hitTest() then
+    if gfx.mouse_wheel > 0 then
+      self.value = self.value + 0.01
+      if self.valueChenged then
+        self:valueChenged()
+      end
+    elseif gfx.mouse_wheel < 0 then
+      self.value = self.value - 0.01
+      if self.valueChenged then
+        self:valueChenged()
+      end
+    end
+    gfx.mouse_wheel = 0
+    if gfx.mouse_cap & 64 ~= 0 then -- middle click
+      self.value = self.default_value or 0.5
+      if self.valueChenged then
+        self:valueChenged()
+      end
+    end
+  end
+end
 function Slider:draw()
   setCol(0xffffff)
   gfx.rect(self.x, self.y, self.w, self.h, false)
