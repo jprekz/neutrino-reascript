@@ -31,8 +31,10 @@ end
 
 gfx.init(
   _scriptName,
-  tonumber(reaper.GetExtState("neutrino", "wndw")) or 800,
-  tonumber(reaper.GetExtState("neutrino", "wndh")) or 600,
+  -- tonumber(reaper.GetExtState("neutrino", "wndw")) or 800,
+  -- tonumber(reaper.GetExtState("neutrino", "wndh")) or 600,
+  380,
+  240,
   tonumber(reaper.GetExtState("neutrino", "dock")) or 0,
   tonumber(reaper.GetExtState("neutrino", "wndx")) or 100,
   tonumber(reaper.GetExtState("neutrino", "wndy")) or 100
@@ -49,14 +51,14 @@ function quit()
 end
 reaper.atexit(quit)
 
-gfx.setfont(1, "Verdana", 16)
-gfx.clear = 0x111111 -- GBR order
+gfx.setfont(1, "Verdana", 14)
+gfx.clear = 0x1E1E1E -- GBR order
 
-function setCol(col) -- RGB order
-  local r = col & 0xff0000 >> 16
-  local g = col & 0x00ff00 >> 8
-  local b = col & 0x0000ff
-  gfx.set(r / 255, g / 255, b / 255, 1)
+function setColor(c, a) -- RGB order
+  local r = (c & 0xff0000) >> 16
+  local g = (c & 0x00ff00) >> 8
+  local b = c & 0x0000ff
+  gfx.set(r / 255, g / 255, b / 255, a or 1)
 end
 
 function setPos(x, y)
@@ -76,21 +78,22 @@ end
 
 Label = instance(Element)
 function Label:draw()
-  setCol(0xffffff)
+  setColor(self.color or 0xffffff)
   setPos(self.x, self.y)
-  gfx.drawstr(tostring(self.str), 5, self.x + self.w, self.y + self.h)
+  gfx.drawstr(tostring(self.str), self.flag or 5, self.x + self.w, self.y + self.h)
 end
 
 Button = instance(Element)
 function Button:draw()
   if self.mouse_hold then
-    setCol(0x999999)
+    setColor(0x555555)
   else
-    setCol(0xffffff)
+    setColor(self.color or 0x111111)
   end
-  gfx.rect(self.x, self.y, self.w, self.h, false)
+  gfx.rect(self.x, self.y, self.w, self.h)
   setPos(self.x, self.y)
-  gfx.drawstr(tostring(self.str), 5, self.x + self.w, self.y + self.h)
+  setColor(0xffffff)
+  gfx.drawstr(tostring(self.str), self.flag or 5, self.x + self.w, self.y + self.h)
 end
 function Button:mouseDown()
   if self:hitTest() then
@@ -115,38 +118,38 @@ function Slider:update()
   if self:hitTest() then
     if gfx.mouse_wheel > 0 then
       self.value = self.value + 0.01
-      if self.valueChenged then
-        self:valueChenged()
+      if self.valueChanged then
+        self:valueChanged()
       end
     elseif gfx.mouse_wheel < 0 then
       self.value = self.value - 0.01
-      if self.valueChenged then
-        self:valueChenged()
+      if self.valueChanged then
+        self:valueChanged()
       end
     end
     gfx.mouse_wheel = 0
     if gfx.mouse_cap & 64 ~= 0 then -- middle click
       self.value = self.default_value or 0.5
-      if self.valueChenged then
-        self:valueChenged()
+      if self.valueChanged then
+        self:valueChanged()
       end
     end
   end
 end
 function Slider:draw()
-  setCol(0xffffff)
-  gfx.rect(self.x, self.y, self.w, self.h, false)
+  setColor(0xffffff, 0.15)
+  gfx.rect(self.x, self.y + (self.h - 6) / 2, self.w, 6)
 end
 
 SliderKnob = instance(Element)
 function SliderKnob:draw()
   if self.mouse_hold then
-    setCol(0x999999)
+    setColor(0x999999)
   else
-    setCol(0xffffff)
+    setColor(0xeeeeee)
   end
   self.x = self.parent.value * self.parent.w + self.parent.x - self.w / 2
-  gfx.rect(self.x, self.y, self.w, self.h, false)
+  gfx.rect(self.x, self.y, self.w, self.h)
 end
 function SliderKnob:mouseDown()
   if self:hitTest() then
@@ -157,8 +160,8 @@ function SliderKnob:update()
   if self.mouse_hold then
     local value = (gfx.mouse_x - self.parent.x) / self.parent.w
     self.parent.value = math.max(0, math.min(1, value))
-    if self.parent.valueChenged then
-      self.parent:valueChenged()
+    if self.parent.valueChanged then
+      self.parent:valueChanged()
     end
   end
 end
@@ -606,38 +609,22 @@ extState =
   {
     neutrinoPath = [[C:\path\to\NEUTRINO\]],
     modelDir = "MERROW",
+    styleShift = "0",
+    selectedVocoder = "WORLD",
     pitchShift = "1.00",
     formantShift = "1.00"
   }
 )
 
-NeutrinoAvailableLabel = Label:new({x = 10, y = 40, w = 40, h = 20, str = tostring(checkNeutrinoAvailable())})
-SelectNeutrinoPathButton =
-  Button:new(
-  {
-    x = 10,
-    y = 10,
-    w = 300,
-    h = 20,
-    str = extState:get("neutrinoPath"),
-    click = function(self)
-      local retval, folder = reaper.JS_Dialog_BrowseForFolder("test", "")
-      if retval == 1 then
-        local neutrinoPath = folder .. "\\"
-        extState:set("neutrinoPath", neutrinoPath)
-        self.str = neutrinoPath
-      end
-      NeutrinoAvailableLabel.str = tostring(checkNeutrinoAvailable())
-    end
-  }
-)
+ModelLabel = Label:new({x = 20, y = 15, w = 140, h = 20, str = "Model", flag = 4})
 SelectModelButton =
   Button:new(
   {
-    x = 10,
-    y = 70,
-    w = 100,
-    h = 20,
+    x = 20,
+    y = 35,
+    w = 140,
+    h = 30,
+    color = 0x202D29,
     str = extState:get("modelDir"),
     click = function(self)
       local list = listModels()
@@ -653,10 +640,11 @@ SelectModelButton =
 StartSynthesisButton =
   Button:new(
   {
-    x = 10,
-    y = 100,
-    w = 150,
-    h = 20,
+    x = 180,
+    y = 25,
+    w = 180,
+    h = 40,
+    color = 0x205E4B,
     update = function(self)
       local items_count = reaper.CountSelectedMediaItems(0)
       self.str = string.format("合成 (%dアイテム選択中)", items_count)
@@ -674,54 +662,144 @@ StartSynthesisButton =
     end
   }
 )
-PitchShiftSlider =
+
+StyleShiftLabel = Label:new({x = 30, y = 75, w = 90, h = 20, str = "StyleShift", flag = 4})
+StyleShiftSlider =
   Slider:new(
   {
-    x = 10,
-    y = 140,
-    w = 300,
+    x = 120,
+    y = 75,
+    w = 200,
     h = 20,
-    value = tonumber(extState:get("pitchShift")) / 2,
-    valueChenged = function(self)
-      local pitchShift = string.format("%1.2f", self.value * 2)
-      extState:set("pitchShift", pitchShift)
-      PitchShiftLabel.str = pitchShift
+    value = tonumber(extState:get("styleShift")),
+    valueChanged = function(self)
+      local styleShift = string.format("%d", self.value)
+      extState:set("styleShift", styleShift)
+      StyleShiftValueLabel.str = styleShift
     end
   }
 )
-PitchShiftLabel =
+StyleShiftValueLabel = Label:new({x = 320, y = 75, w = 40, h = 20, str = extState:get("styleShift")})
+
+VocoderLabel = Label:new({x = 20, y = 100, w = 90, h = 20, str = "Vocoder", flag = 4})
+WorldButton =
+  Button:new(
+  {
+    x = 20,
+    y = 120,
+    w = 140,
+    h = 30,
+    color = extState:get("selectedVocoder") == "WORLD" and 0x202D29 or 0x111111,
+    str = "WORLD",
+    click = function(self)
+      extState:set("selectedVocoder", "WORLD")
+      self.color = 0x202D29
+      NsfButton.color = 0x111111
+    end
+  }
+)
+NsfButton =
+  Button:new(
+  {
+    x = 160,
+    y = 120,
+    w = 140,
+    h = 30,
+    color = extState:get("selectedVocoder") == "NSF" and 0x202D29 or 0x111111,
+    str = "NSF",
+    click = function(self)
+      extState:set("selectedVocoder", "NSF")
+      self.color = 0x202D29
+      WorldButton.color = 0x111111
+    end
+  }
+)
+TabPage =
+  Element:new(
+  {
+    x = 20,
+    y = 150,
+    w = 340,
+    h = 70,
+    draw = function(self)
+      setColor(0x202D29)
+      gfx.rect(self.x, self.y, self.w, self.h)
+    end
+  }
+)
+
+PitchShiftLabel = Label:new({x = 30, y = 160, w = 90, h = 20, str = "PitchShift", flag = 4})
+PitchShiftSlider =
+  Slider:new(
+  {
+    x = 120,
+    y = 160,
+    w = 200,
+    h = 20,
+    value = tonumber(extState:get("pitchShift")) / 2,
+    valueChanged = function(self)
+      local pitchShift = string.format("%1.2f", self.value * 2)
+      extState:set("pitchShift", pitchShift)
+      PitchShiftValueLabel.str = pitchShift
+    end
+  }
+)
+PitchShiftValueLabel =
   Label:new(
   {
-    x = 10,
+    x = 320,
     y = 160,
     w = 40,
     h = 20,
     str = extState:get("pitchShift")
   }
 )
+
+FormantShiftLabel = Label:new({x = 30, y = 190, w = 90, h = 20, str = "FormantShift", flag = 4})
 FormantShiftSlider =
   Slider:new(
   {
-    x = 10,
-    y = 200,
-    w = 300,
+    x = 120,
+    y = 190,
+    w = 200,
     h = 20,
     value = tonumber(extState:get("formantShift")) / 2,
-    valueChenged = function(self)
+    valueChanged = function(self)
       local formantShift = string.format("%1.2f", self.value * 2)
       extState:set("formantShift", formantShift)
-      FormantShiftLabel.str = formantShift
+      FormantShiftValueLabel.str = formantShift
     end
   }
 )
-FormantShiftLabel =
+FormantShiftValueLabel =
   Label:new(
   {
-    x = 10,
-    y = 220,
+    x = 320,
+    y = 190,
     w = 40,
     h = 20,
     str = extState:get("formantShift")
+  }
+)
+
+SettingsLabel = Label:new({x = 30, y = 230, w = 90, h = 20, str = "Settings", flag = 4})
+SelectNeutrinoPathButton =
+  Button:new(
+  {
+    x = 30,
+    y = 250,
+    w = 320,
+    h = 20,
+    flag = 4,
+    str = extState:get("neutrinoPath"),
+    click = function(self)
+      local retval, folder = reaper.JS_Dialog_BrowseForFolder("test", "")
+      if retval == 1 then
+        local neutrinoPath = folder .. "\\"
+        extState:set("neutrinoPath", neutrinoPath)
+        self.str = neutrinoPath
+      end
+    end
   }
 )
 
