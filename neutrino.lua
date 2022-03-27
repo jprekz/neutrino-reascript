@@ -513,7 +513,14 @@ function synthesis(item)
   local mgcOutputPath = outputPath .. [[output\]] .. name .. [[.mgc]]
   local bapOutputPath = outputPath .. [[output\]] .. name .. [[.bap]]
   local modelPath = neutrinoPath .. [[model\]] .. modelDir .. [[\]]
+
+  -- Avoid the overwrite because ReaScript cannot overwrite online audio files
   local outputFilePath = string.format([[%s\%s.wav]], projectPath, name)
+  local n = 1
+  while reaper.file_exists(outputFilePath) do
+    outputFilePath = string.format([[%s\%s-%03d.wav]], projectPath, name, n)
+    n = n + 1
+  end
 
   reaper.RecursiveCreateDirectory(outputPath .. [[score\musicxml]], 0)
   reaper.RecursiveCreateDirectory(outputPath .. [[score\label\full]], 0)
