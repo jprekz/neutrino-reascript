@@ -480,7 +480,7 @@ function runMusicXMLtoLabel(neutrinoPath, outputPath, name)
   return 1
 end
 
-function runNEUTRINO(neutrinoPath, outputPath, name, modelDir)
+function runNEUTRINO(neutrinoPath, outputPath, name, modelDir, styleShift)
   local neutrinoBinPath = neutrinoPath .. [[bin\NEUTRINO.exe]]
   local labelFullPath = [["]] .. outputPath .. [[score\label\full\]] .. name .. [[.lab"]]
   local labelTimingPath = [["]] .. outputPath .. [[score\label\timing\]] .. name .. [[.lab"]]
@@ -489,7 +489,7 @@ function runNEUTRINO(neutrinoPath, outputPath, name, modelDir)
   local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
   local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
   local modelPath = neutrinoPath .. [[model\]] .. modelDir .. [[\]]
-  local neutrinoBinOption = [[-n 3 -k 0 -m -t]]
+  local neutrinoBinOption = string.format([[-n 3 -k %d -m -t]], styleShift)
   local command =
     neutrinoBinPath ..
     " " ..
@@ -549,7 +549,8 @@ function synthesis(item, neutrinoPath, modelDir, outputPath)
     return nil, err
   end
 
-  local ret, err = runNEUTRINO(neutrinoPath, outputPath, name, modelDir)
+  local styleShift = extState:get("styleShift")
+  local ret, err = runNEUTRINO(neutrinoPath, outputPath, name, modelDir, styleShift)
   if ret == nil then
     return nil, err
   end
