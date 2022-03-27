@@ -4,7 +4,7 @@ _author = "rekz"
 
 ----- common
 
-_debug = true
+_debug = reaper.GetExtState("neutrino", "debug") == "true"
 
 if _debug then
   reaper.ClearConsole()
