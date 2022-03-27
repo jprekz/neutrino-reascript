@@ -111,26 +111,10 @@ function Slider:spawn(obj)
   SliderKnob:spawn({parent = obj, x = obj.x, y = obj.y, w = 10, h = obj.h})
   return obj
 end
-function Slider:update()
-  if self.hidden then
-    return
-  end
-  local function changeValue(value)
-    self.value = value
-    if self.valueChanged then
-      self:valueChanged()
-    end
-  end
-  if self:hitTest() then
-    if gfx.mouse_cap & 64 ~= 0 then -- middle click
-      changeValue(self.default_value or 0.5)
-    end
-    if gfx.mouse_wheel > 0 then
-      changeValue(self.value + 0.01)
-    elseif gfx.mouse_wheel < 0 then
-      changeValue(self.value - 0.01)
-    end
-    gfx.mouse_wheel = 0
+function Slider:changeValue(value)
+  self.value = value
+  if self.valueChanged then
+    self:valueChanged()
   end
 end
 function Slider:draw()
@@ -139,6 +123,48 @@ function Slider:draw()
   end
   setColor(self.color or 0x333333)
   gfx.rect(self.x, self.y + (self.h - 6) / 2, self.w, 6)
+  if self.default_value then
+    setColor(0x222222)
+    gfx.rect(self.default_value * self.w + self.x, self.y + (self.h - 6) / 2, 1, 6)
+  end
+end
+function Slider:mouseDown()
+  if self.hidden then
+    return
+  end
+  if self:hitTest() then
+    if self._mouse_x == gfx.mouse_x and self._mouse_y == gfx.mouse_y then
+      self:changeValue(self.default_value or 0.5)
+      return
+    end
+    self.mouse_hold = true
+  end
+end
+function Slider:update()
+  if self.hidden then
+    return
+  end
+  if self.mouse_hold then
+    local value = (gfx.mouse_x - self.x) / self.w
+    self:changeValue(math.max(0, math.min(1, value)))
+  elseif self:hitTest() then
+    if gfx.mouse_wheel > 0 then
+      self:changeValue(math.min(1, self.value + (self.unit_value or 0.01)))
+    elseif gfx.mouse_wheel < 0 then
+      self:changeValue(math.max(0, self.value - (self.unit_value or 0.01)))
+    end
+    gfx.mouse_wheel = 0
+  end
+end
+function Slider:mouseUp()
+  self.mouse_hold = false
+  if self:hitTest() then
+    self._mouse_x = gfx.mouse_x
+    self._mouse_y = gfx.mouse_y
+  else
+    self._mouse_x = nil
+    self._mouse_y = nil
+  end
 end
 
 SliderKnob = instance(Element)
@@ -146,7 +172,7 @@ function SliderKnob:draw()
   if self.parent.hidden then
     return
   end
-  if self.mouse_hold then
+  if self.parent.mouse_hold then
     setColor(self.color_active or 0x999999)
   elseif self:hitTest() then
     setColor(self.color_hover or 0xffffff)
@@ -155,26 +181,6 @@ function SliderKnob:draw()
   end
   self.x = self.parent.value * self.parent.w + self.parent.x - self.w / 2
   gfx.rect(self.x, self.y, self.w, self.h)
-end
-function SliderKnob:mouseDown()
-  if self.parent.hidden then
-    return
-  end
-  if self:hitTest() then
-    self.mouse_hold = true
-  end
-end
-function SliderKnob:update()
-  if self.mouse_hold then
-    local value = (gfx.mouse_x - self.parent.x) / self.parent.w
-    self.parent.value = math.max(0, math.min(1, value))
-    if self.parent.valueChanged then
-      self.parent:valueChanged()
-    end
-  end
-end
-function SliderKnob:mouseUp()
-  self.mouse_hold = false
 end
 
 gfx.clear = 0x1e1e1e -- GBR order
@@ -700,9 +706,11 @@ styleShiftSlider =
     y = 75,
     w = 200,
     h = 20,
-    value = tonumber(extState:get("styleShift")),
+    value = (tonumber(extState:get("styleShift")) + 6) / 12,
+    default_value = 0.5,
+    unit_value = 1.0 / 12,
     valueChanged = function(self)
-      local styleShift = string.format("%d", self.value)
+      local styleShift = string.format("%1.0f", math.floor(self.value * 12 + 0.5) - 6)
       extState:set("styleShift", styleShift)
       styleShiftValueLabel.text = styleShift
     end
@@ -756,6 +764,7 @@ worldTabPage.pitchShiftSlider =
     h = 20,
     color = 0x424D49,
     value = tonumber(extState:get("pitchShift")) / 2,
+    default_value = 0.5,
     valueChanged = function(self)
       local pitchShift = string.format("%1.2f", self.value * 2)
       extState:set("pitchShift", pitchShift)
@@ -774,6 +783,7 @@ worldTabPage.formantShiftSlider =
     h = 20,
     color = 0x424D49,
     value = tonumber(extState:get("formantShift")) / 2,
+    default_value = 0.5,
     valueChanged = function(self)
       local formantShift = string.format("%1.2f", self.value * 2)
       extState:set("formantShift", formantShift)
