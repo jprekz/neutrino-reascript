@@ -493,23 +493,17 @@ function exec(command)
   return ret
 end
 
-function synthesis(item, neutrinoPath, modelDir, outputPath)
-  local musicxml, err = buildMusicXml(item)
-  if musicxml == nil then
-    return nil, err
-  end
-
+function synthesis(item)
   local take = reaper.GetActiveTake(item)
   local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
   if name == "" then
     name = "untitled"
   end
 
-  reaper.RecursiveCreateDirectory(outputPath .. [[score\musicxml]], 0)
-  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\full]], 0)
-  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\mono]], 0)
-  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\timing]], 0)
-  reaper.RecursiveCreateDirectory(outputPath .. [[output]], 0)
+  local neutrinoPath = extState:get("neutrinoPath")
+  local modelDir = extState:get("modelDir")
+  local projectPath = reaper.GetProjectPath("")
+  local outputPath = projectPath .. [[\NEUTRINO\]]
 
   local musicxmlPath = outputPath .. [[score\musicxml\]] .. name .. [[.musicxml]]
   local labelFullPath = outputPath .. [[score\label\full\]] .. name .. [[.lab]]
@@ -519,8 +513,18 @@ function synthesis(item, neutrinoPath, modelDir, outputPath)
   local mgcOutputPath = outputPath .. [[output\]] .. name .. [[.mgc]]
   local bapOutputPath = outputPath .. [[output\]] .. name .. [[.bap]]
   local modelPath = neutrinoPath .. [[model\]] .. modelDir .. [[\]]
-  local outputFilePath = reaper.GetProjectPath("") .. [[\]] .. name .. [[.wav]]
+  local outputFilePath = string.format([[%s\%s.wav]], projectPath, name)
 
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\musicxml]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\full]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\mono]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\timing]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[output]], 0)
+
+  local musicxml, err = buildMusicXml(item)
+  if musicxml == nil then
+    return nil, err
+  end
   local file = io.open(musicxmlPath, "w")
   file:write(musicxml)
   file:close()
@@ -600,26 +604,24 @@ function synthesis(item, neutrinoPath, modelDir, outputPath)
     end
   end
 
-  return outputFilePath
+  local new_take = reaper.AddTakeToMediaItem(item)
+  local pcm_source = reaper.PCM_Source_CreateFromFile(outputFilePath)
+  reaper.PCM_Source_BuildPeaks(pcm_source, 0)
+  reaper.SetMediaItemTake_Source(new_take, pcm_source)
+  reaper.SetActiveTake(new_take)
+
+  return 1
 end
 
-function synthesisAll(neutrinoPath, modelDir, outputPath)
+function synthesisAll()
   local items_count = reaper.CountSelectedMediaItems(0)
   for i = 0, items_count - 1 do
     local item = reaper.GetSelectedMediaItem(0, i)
-    local outputFilePath, err = synthesis(item, neutrinoPath, modelDir, outputPath)
-    if outputFilePath == nil then
+    local ret, err = synthesis(item)
+    if ret == nil then
       return nil, err
     end
-    print("output file path: " .. outputFilePath)
-
-    local new_take = reaper.AddTakeToMediaItem(item)
-    local pcm_source = reaper.PCM_Source_CreateFromFile(outputFilePath)
-    reaper.PCM_Source_BuildPeaks(pcm_source, 0)
-    reaper.SetMediaItemTake_Source(new_take, pcm_source)
-    reaper.SetActiveTake(new_take)
   end
-
   return 1
 end
 
@@ -687,8 +689,7 @@ startSynthesisButton =
     end,
     click = function(self)
       reaper.Undo_BeginBlock()
-      local outputPath = reaper.GetProjectPath("") .. [[\NEUTRINO\]]
-      ret, err = synthesisAll(extState:get("neutrinoPath"), extState:get("modelDir"), outputPath)
+      ret, err = synthesisAll()
       if ret == nil then
         reaper.ShowMessageBox(tostring(err), "Error: " .. _scriptName, 0)
       end
