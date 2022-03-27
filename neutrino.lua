@@ -506,13 +506,13 @@ function runNEUTRINO(neutrinoPath, outputPath, name, modelDir, styleShift)
   return 1
 end
 
-function runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift)
+function runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift, outputFilePath)
   local worldPath = neutrinoPath .. [[bin\WORLD.exe]]
   local f0OutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.f0"]]
   local mgcOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.mgc"]]
   local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
   local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
-  local outputFilePath = outputPath .. [[output\]] .. name .. [[_syn.wav]]
+  -- local outputFilePath = outputPath .. [[output\]] .. name .. [[_syn.wav]]
   local worldOption = string.format([[-f %.2f -m %.2f -o "%s" -n 3 -t]], pitchShift, formantShift, outputFilePath)
   local command = worldPath .. " " .. tempOutputPathes .. " " .. worldOption
   print("> " .. command)
@@ -520,8 +520,39 @@ function runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift)
   if ret == nil then
     return nil, "Failed to execute WORLD"
   end
-  print(ret)
-  return outputFilePath
+  return ret
+end
+
+function runNSF(neutrinoPath, outputPath, name, modelDir, outputFilePath)
+  if string.find(name, " ") then
+    return nil, 'NSF cannot handle filename that contain spaces: "' .. name .. '"'
+  end
+  local nsfPath = neutrinoPath .. [[bin\NSF_IO.exe]]
+  local labelFullPath = [["]] .. outputPath .. [[score\label\full\]] .. name .. [[.lab"]]
+  local labelTimingPath = [["]] .. outputPath .. [[score\label\timing\]] .. name .. [[.lab"]]
+  local f0OutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.f0"]]
+  local mgcOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.mgc"]]
+  local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
+  local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
+  -- local outputFilePath = outputPath .. [[output\]] .. name .. [[_nsf.wav]]
+  local nsfOption = [[-t]]
+  local command =
+    nsfPath ..
+    " " ..
+      labelFullPath ..
+        " " ..
+          labelTimingPath .. " " .. tempOutputPathes .. " " .. modelDir .. ' "' .. outputFilePath .. '" ' .. nsfOption
+  command = [[cd /d ]] .. neutrinoPath .. "\n" .. command
+  print("> " .. command)
+  local file = io.open(outputPath .. [[cmd.bat]], "w")
+  file:write(command)
+  file:close()
+  command = [["]] .. outputPath .. [[cmd.bat"]]
+  local ret = reaper.ExecProcess(command, 0)
+  if ret == nil then
+    return nil, "Failed to execute NSF"
+  end
+  return ret
 end
 
 function getFileName(item)
@@ -555,13 +586,23 @@ function synthesis(item, neutrinoPath, modelDir, outputPath)
     return nil, err
   end
 
-  local pitchShift = extState:get("pitchShift")
-  local formantShift = extState:get("formantShift")
-  local ret, err = runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift)
-  if ret == nil then
-    return nil, err
+  local outputFilePath = reaper.GetProjectPath("") .. [[\]] .. name .. [[.wav]]
+
+  if extState:get("selectedVocoder") == "WORLD" then
+    local pitchShift = extState:get("pitchShift")
+    local formantShift = extState:get("formantShift")
+    local ret, err = runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift, outputFilePath)
+    if ret == nil then
+      return nil, err
+    end
+    print(ret)
+  elseif extState:get("selectedVocoder") == "NSF" then
+    local ret, err = runNSF(neutrinoPath, outputPath, name, modelDir, outputFilePath)
+    if ret == nil then
+      return nil, err
+    end
+    print(ret)
   end
-  outputFilePath = ret
 
   return outputFilePath
 end
