@@ -27,6 +27,29 @@ function instance(proto, obj)
   return obj
 end
 
+extState = {dict = {}}
+function extState:init(init_dict)
+  for key, default_value in pairs(init_dict) do
+    local get = reaper.GetExtState("neutrino", key)
+    if get ~= "" then
+      self.dict[key] = get
+    else
+      self.dict[key] = default_value
+      reaper.SetExtState("neutrino", key, default_value, true)
+    end
+  end
+end
+function extState:get(key)
+  return self.dict[key]
+end
+function extState:set(key, value)
+  if not self.dict[key] then
+    error("Attempted to set a value to an uninitialized key")
+  end
+  self.dict[key] = value
+  reaper.SetExtState("neutrino", key, value, true)
+end
+
 ----- GUI common
 
 function setColor(c, a) -- RGB order
@@ -446,123 +469,28 @@ end
 
 ----- NEUTRINO
 
-function createOutputDirectories(outputPath)
-  reaper.RecursiveCreateDirectory(outputPath .. [[score\musicxml]], 0)
-  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\full]], 0)
-  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\mono]], 0)
-  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\timing]], 0)
-  reaper.RecursiveCreateDirectory(outputPath .. [[output]], 0)
-end
+extState:init(
+  {
+    neutrinoPath = [[C:\path\to\NEUTRINO\]],
+    modelDir = "MERROW",
+    styleShift = "0",
+    selectedVocoder = "WORLD",
+    pitchShift = "1.00",
+    formantShift = "1.00"
+  }
+)
 
-function writeMusicXml(outputPath, name, musicxml)
-  local musicxmlPath = outputPath .. [[score\musicxml\]] .. name .. [[.musicxml]]
-  print("musicxml path: " .. musicxmlPath)
-  local file = io.open(musicxmlPath, "w")
-  file:write(musicxml)
-  file:close()
-end
-
-function runMusicXMLtoLabel(neutrinoPath, outputPath, name)
-  local musicxmlPath = [["]] .. outputPath .. [[score\musicxml\]] .. name .. [[.musicxml"]]
-  local musicXMLtoLabelPath = neutrinoPath .. [[bin\musicXMLtoLabel.exe]]
-  local labelFullPath = [["]] .. outputPath .. [[score\label\full\]] .. name .. [[.lab"]]
-  local labelMonoPath = [["]] .. outputPath .. [[score\label\mono\]] .. name .. [[.lab"]]
-  local musicXMLtoLabelOption = [[-x ]] .. neutrinoPath .. [[settings\dic]]
-  local command =
-    musicXMLtoLabelPath ..
-    " " .. musicxmlPath .. " " .. labelFullPath .. " " .. labelMonoPath .. " " .. musicXMLtoLabelOption
-  print("> " .. command)
+function exec(command)
+  print("exec> " .. command)
   local ret = reaper.ExecProcess(command, 0)
   if ret == nil then
-    return nil, "Failed to execute musicXMLtoLabel"
-  end
-  print(ret)
-  return 1
-end
-
-function runNEUTRINO(neutrinoPath, outputPath, name, modelDir, styleShift)
-  local neutrinoBinPath = neutrinoPath .. [[bin\NEUTRINO.exe]]
-  local labelFullPath = [["]] .. outputPath .. [[score\label\full\]] .. name .. [[.lab"]]
-  local labelTimingPath = [["]] .. outputPath .. [[score\label\timing\]] .. name .. [[.lab"]]
-  local f0OutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.f0"]]
-  local mgcOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.mgc"]]
-  local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
-  local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
-  local modelPath = neutrinoPath .. [[model\]] .. modelDir .. [[\]]
-  local neutrinoBinOption = string.format([[-n 3 -k %d -m -t]], styleShift)
-  local command =
-    neutrinoBinPath ..
-    " " ..
-      labelFullPath .. " " .. labelTimingPath .. " " .. tempOutputPathes .. " " .. modelPath .. " " .. neutrinoBinOption
-  print("> " .. command)
-  local ret = reaper.ExecProcess(command, 0)
-  if ret == nil then
-    return nil, "Failed to execute NEUTRINO"
+    return nil, "Failed to execute"
   end
   print(ret)
   if ret:sub(1, 2) == "-1" then
-    return nil, "An error occurred while running NEUTRINO"
-  end
-  return 1
-end
-
-function runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift, outputFilePath)
-  local worldPath = neutrinoPath .. [[bin\WORLD.exe]]
-  local f0OutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.f0"]]
-  local mgcOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.mgc"]]
-  local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
-  local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
-  -- local outputFilePath = outputPath .. [[output\]] .. name .. [[_syn.wav]]
-  local worldOption = string.format([[-f %.2f -m %.2f -o "%s" -n 3 -t]], pitchShift, formantShift, outputFilePath)
-  local command = worldPath .. " " .. tempOutputPathes .. " " .. worldOption
-  print("> " .. command)
-  local ret = reaper.ExecProcess(command, 0)
-  if ret == nil then
-    return nil, "Failed to execute WORLD"
+    return nil, "An error occurred while running"
   end
   return ret
-end
-
-function runNSF(neutrinoPath, outputPath, name, modelDir, outputFilePath)
-  if string.find(name, " ") then
-    return nil, 'NSF cannot handle filename that contain spaces: "' .. name .. '"'
-  end
-  local nsfPath = neutrinoPath .. [[bin\NSF_IO.exe]]
-  local labelFullPath = [["]] .. outputPath .. [[score\label\full\]] .. name .. [[.lab"]]
-  local labelTimingPath = [["]] .. outputPath .. [[score\label\timing\]] .. name .. [[.lab"]]
-  local f0OutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.f0"]]
-  local mgcOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.mgc"]]
-  local bapOutputPath = [["]] .. outputPath .. [[output\]] .. name .. [[.bap"]]
-  local tempOutputPathes = f0OutputPath .. " " .. mgcOutputPath .. " " .. bapOutputPath
-  -- local outputFilePath = outputPath .. [[output\]] .. name .. [[_nsf.wav]]
-  local nsfOption = [[-t]]
-  local command =
-    nsfPath ..
-    " " ..
-      labelFullPath ..
-        " " ..
-          labelTimingPath .. " " .. tempOutputPathes .. " " .. modelDir .. ' "' .. outputFilePath .. '" ' .. nsfOption
-  command = [[cd /d ]] .. neutrinoPath .. "\n" .. command
-  print("> " .. command)
-  local file = io.open(outputPath .. [[cmd.bat]], "w")
-  file:write(command)
-  file:close()
-  command = [["]] .. outputPath .. [[cmd.bat"]]
-  local ret = reaper.ExecProcess(command, 0)
-  if ret == nil then
-    return nil, "Failed to execute NSF"
-  end
-  return ret
-end
-
-function getFileName(item)
-  local take = reaper.GetActiveTake(item)
-  local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
-  if name == "" then
-    name = "untitled"
-  end
-  print("file name: " .. name)
-  return name
 end
 
 function synthesis(item, neutrinoPath, modelDir, outputPath)
@@ -571,37 +499,105 @@ function synthesis(item, neutrinoPath, modelDir, outputPath)
     return nil, err
   end
 
-  local name = getFileName(item)
-  createOutputDirectories(outputPath)
-  writeMusicXml(outputPath, name, musicxml)
-
-  local ret, err = runMusicXMLtoLabel(neutrinoPath, outputPath, name)
-  if ret == nil then
-    return nil, err
+  local take = reaper.GetActiveTake(item)
+  local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
+  if name == "" then
+    name = "untitled"
   end
 
-  local styleShift = extState:get("styleShift")
-  local ret, err = runNEUTRINO(neutrinoPath, outputPath, name, modelDir, styleShift)
-  if ret == nil then
-    return nil, err
-  end
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\musicxml]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\full]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\mono]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[score\label\timing]], 0)
+  reaper.RecursiveCreateDirectory(outputPath .. [[output]], 0)
 
+  local musicxmlPath = outputPath .. [[score\musicxml\]] .. name .. [[.musicxml]]
+  local labelFullPath = outputPath .. [[score\label\full\]] .. name .. [[.lab]]
+  local labelMonoPath = outputPath .. [[score\label\mono\]] .. name .. [[.lab]]
+  local labelTimingPath = outputPath .. [[score\label\timing\]] .. name .. [[.lab]]
+  local f0OutputPath = outputPath .. [[output\]] .. name .. [[.f0]]
+  local mgcOutputPath = outputPath .. [[output\]] .. name .. [[.mgc]]
+  local bapOutputPath = outputPath .. [[output\]] .. name .. [[.bap]]
+  local modelPath = neutrinoPath .. [[model\]] .. modelDir .. [[\]]
   local outputFilePath = reaper.GetProjectPath("") .. [[\]] .. name .. [[.wav]]
 
+  local file = io.open(musicxmlPath, "w")
+  file:write(musicxml)
+  file:close()
+
+  local musicXMLtoLabelCommand =
+    string.format(
+    [[%s "%s" "%s" "%s" -x %ssettings\dic]],
+    neutrinoPath .. [[bin\musicXMLtoLabel.exe]],
+    musicxmlPath,
+    labelFullPath,
+    labelMonoPath,
+    neutrinoPath
+  )
+  local ret, err = exec(musicXMLtoLabelCommand)
+  if ret == nil then
+    return nil, err .. " musicXMLtoLabel"
+  end
+
+  local neutrinoCommand =
+    string.format(
+    [[%s "%s" "%s" "%s" "%s" "%s" %s -n 3 -k %d -m -t]],
+    neutrinoPath .. [[bin\NEUTRINO.exe]],
+    labelFullPath,
+    labelTimingPath,
+    f0OutputPath,
+    mgcOutputPath,
+    bapOutputPath,
+    modelPath,
+    extState:get("styleShift")
+  )
+  local ret, err = exec(neutrinoCommand)
+  if ret == nil then
+    return nil, err .. " NEUTRINO"
+  end
+
   if extState:get("selectedVocoder") == "WORLD" then
-    local pitchShift = extState:get("pitchShift")
-    local formantShift = extState:get("formantShift")
-    local ret, err = runWORLD(neutrinoPath, outputPath, name, pitchShift, formantShift, outputFilePath)
+    local worldCommand =
+      string.format(
+      [[%s "%s" "%s" "%s" -f %.2f -m %.2f -o "%s" -n 3 -t]],
+      neutrinoPath .. [[bin\WORLD.exe]],
+      f0OutputPath,
+      mgcOutputPath,
+      bapOutputPath,
+      extState:get("pitchShift"),
+      extState:get("formantShift"),
+      outputFilePath
+    )
+    local ret, err = exec(worldCommand)
     if ret == nil then
-      return nil, err
+      return nil, err .. " WORLD"
     end
-    print(ret)
   elseif extState:get("selectedVocoder") == "NSF" then
-    local ret, err = runNSF(neutrinoPath, outputPath, name, modelDir, outputFilePath)
-    if ret == nil then
-      return nil, err
+    if string.find(name, " ") then
+      return nil, 'NSF cannot handle filename that contain spaces: "' .. name .. '"'
     end
-    print(ret)
+    local nsfCommand =
+      string.format(
+      [[%s "%s" "%s" "%s" "%s" "%s" %s "%s" -t]],
+      neutrinoPath .. [[bin\NSF_IO.exe]],
+      labelFullPath,
+      labelTimingPath,
+      f0OutputPath,
+      mgcOutputPath,
+      bapOutputPath,
+      modelDir,
+      outputFilePath
+    )
+
+    local file = io.open(outputPath .. [[cmd.bat]], "w")
+    file:write([[cd /d ]] .. neutrinoPath .. "\n" .. nsfCommand)
+    file:close()
+
+    local batCommand = [["]] .. outputPath .. [[cmd.bat"]]
+    local ret, err = exec(batCommand)
+    if ret == nil then
+      return nil, err .. " NSF(bat)"
+    end
   end
 
   return outputFilePath
@@ -651,43 +647,6 @@ function listModels()
 end
 
 ----- main
-
-GetSetHook = {}
-function GetSetHook:new(init_dict)
-  local obj = instance(GetSetHook)
-  for key, default_value in pairs(init_dict) do
-    local get = reaper.GetExtState("neutrino", key)
-    if get ~= "" then
-      obj[key] = get
-    else
-      obj[key] = default_value
-      reaper.SetExtState("neutrino", key, default_value, true)
-    end
-  end
-  return obj
-end
-function GetSetHook:get(key)
-  return self[key]
-end
-function GetSetHook:set(key, value)
-  if not self[key] then
-    error("Attempted to set a value to an uninitialized key")
-  end
-  self[key] = value
-  reaper.SetExtState("neutrino", key, value, true)
-end
-
-extState =
-  GetSetHook:new(
-  {
-    neutrinoPath = [[C:\path\to\NEUTRINO\]],
-    modelDir = "MERROW",
-    styleShift = "0",
-    selectedVocoder = "WORLD",
-    pitchShift = "1.00",
-    formantShift = "1.00"
-  }
-)
 
 modelLabel = Label:spawn({x = 20, y = 15, w = 140, h = 20, text = "Model", flag = 4})
 selectModelButton =
