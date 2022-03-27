@@ -828,14 +828,14 @@ tabUpdate()
 settingsLabel = Label:spawn({x = 20, y = 230, w = 140, h = 20, text = "Settings", flag = 4})
 settingsBackground = Label:spawn({x = 20, y = 250, w = 340, h = 65, color = 0x151515})
 neutrinoPathLabel = Label:spawn({x = 30, y = 260, w = 320, h = 20, text = "NEUTRINO directory:", flag = 4})
-neutrinoAvailableLabel = Label:spawn({x = 150, y = 260, w = 20, h = 20, color_text = 0x00aa00, text = "✓"})
+neutrinoAvailableLabel = Label:spawn({x = 160, y = 260, w = 190, h = 20, color_text = 0x00aa00, text = "✓", flag = 4})
 function updateNeutrinoAvailableLabel()
   if checkNeutrinoAvailable() then
     neutrinoAvailableLabel.color_text = 0x00aa00
     neutrinoAvailableLabel.text = "✓"
   else
     neutrinoAvailableLabel.color_text = 0xff0000
-    neutrinoAvailableLabel.text = "×"
+    neutrinoAvailableLabel.text = '× (select "NEUTRINO\\Run.bat"!)'
   end
 end
 updateNeutrinoAvailableLabel()
@@ -851,9 +851,9 @@ neutrinoPathButton =
     text = extState:get("neutrinoPath"),
     flag = 4,
     click = function(self)
-      local retval, folder = reaper.JS_Dialog_BrowseForFolder("Select NEUTRINO directory", "")
-      if retval == 1 then
-        local neutrinoPath = folder .. "\\"
+      local ret, path = reaper.GetUserFileNameForRead("", "title", ".bat")
+      if ret then
+        local neutrinoPath = string.sub(path, 0, -8)
         extState:set("neutrinoPath", neutrinoPath)
         self.text = neutrinoPath
         updateNeutrinoAvailableLabel()
