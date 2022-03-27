@@ -29,31 +29,6 @@ end
 
 ----- GUI common
 
-gfx.init(
-  _scriptName,
-  -- tonumber(reaper.GetExtState("neutrino", "wndw")) or 800,
-  -- tonumber(reaper.GetExtState("neutrino", "wndh")) or 600,
-  380,
-  240,
-  tonumber(reaper.GetExtState("neutrino", "dock")) or 0,
-  tonumber(reaper.GetExtState("neutrino", "wndx")) or 100,
-  tonumber(reaper.GetExtState("neutrino", "wndy")) or 100
-)
-
-function quit()
-  local d, x, y, w, h = gfx.dock(-1, 0, 0, 0, 0)
-  reaper.SetExtState("neutrino", "wndw", w, true)
-  reaper.SetExtState("neutrino", "wndh", h, true)
-  reaper.SetExtState("neutrino", "dock", d, true)
-  reaper.SetExtState("neutrino", "wndx", x, true)
-  reaper.SetExtState("neutrino", "wndy", y, true)
-  gfx.quit()
-end
-reaper.atexit(quit)
-
-gfx.setfont(1, "Verdana", 14)
-gfx.clear = 0x1E1E1E -- GBR order
-
 function setColor(c, a) -- RGB order
   local r = (c & 0xff0000) >> 16
   local g = (c & 0x00ff00) >> 8
@@ -65,10 +40,11 @@ function setPos(x, y)
   gfx.x, gfx.y = x, y
 end
 
-Element = {objects = {}}
-function Element:new(obj)
+_objects = {}
+Element = {}
+function Element:spawn(obj)
   local obj = instance(self, obj)
-  Element.objects[#Element.objects + 1] = obj
+  _objects[#_objects + 1] = obj
   return obj
 end
 function Element:hitTest()
@@ -78,24 +54,45 @@ end
 
 Label = instance(Element)
 function Label:draw()
-  setColor(self.color or 0xffffff)
-  setPos(self.x, self.y)
-  gfx.drawstr(tostring(self.str), self.flag or 5, self.x + self.w, self.y + self.h)
+  if self.hidden then
+    return
+  end
+  if self.color then
+    setColor(self.color)
+    gfx.rect(self.x, self.y, self.w, self.h)
+  end
+  if self.text then
+    setColor(self.color_text or 0xcccccc)
+    setPos(self.x, self.y)
+    gfx.setfont(1)
+    gfx.drawstr(tostring(self.text), self.flag or 5, self.x + self.w, self.y + self.h)
+  end
 end
 
 Button = instance(Element)
 function Button:draw()
+  if self.hidden then
+    return
+  end
   if self.mouse_hold then
-    setColor(0x555555)
+    setColor(self.color_active or 0x151515)
+  elseif self:hitTest() then
+    setColor(self.color_hover or 0x3e3e3e)
   else
-    setColor(self.color or 0x111111)
+    setColor(self.color or 0x333333)
   end
   gfx.rect(self.x, self.y, self.w, self.h)
-  setPos(self.x, self.y)
-  setColor(0xffffff)
-  gfx.drawstr(tostring(self.str), self.flag or 5, self.x + self.w, self.y + self.h)
+  if self.text then
+    setColor(self.color_text or 0xeeeeee)
+    setPos(self.x, self.y)
+    gfx.setfont(2)
+    gfx.drawstr(tostring(self.text), self.flag or 5, self.x + self.w, self.y + self.h)
+  end
 end
 function Button:mouseDown()
+  if self.hidden then
+    return
+  end
   if self:hitTest() then
     self.mouse_hold = true
   end
@@ -109,49 +106,60 @@ function Button:mouseUp()
 end
 
 Slider = instance(Element)
-function Slider:new(obj)
-  obj = Element.new(self, obj)
-  SliderKnob:new({parent = obj, x = obj.x, y = obj.y, w = 10, h = obj.h})
+function Slider:spawn(obj)
+  obj = Element.spawn(self, obj)
+  SliderKnob:spawn({parent = obj, x = obj.x, y = obj.y, w = 10, h = obj.h})
   return obj
 end
 function Slider:update()
+  if self.hidden then
+    return
+  end
+  local function changeValue(value)
+    self.value = value
+    if self.valueChanged then
+      self:valueChanged()
+    end
+  end
   if self:hitTest() then
+    if gfx.mouse_cap & 64 ~= 0 then -- middle click
+      changeValue(self.default_value or 0.5)
+    end
     if gfx.mouse_wheel > 0 then
-      self.value = self.value + 0.01
-      if self.valueChanged then
-        self:valueChanged()
-      end
+      changeValue(self.value + 0.01)
     elseif gfx.mouse_wheel < 0 then
-      self.value = self.value - 0.01
-      if self.valueChanged then
-        self:valueChanged()
-      end
+      changeValue(self.value - 0.01)
     end
     gfx.mouse_wheel = 0
-    if gfx.mouse_cap & 64 ~= 0 then -- middle click
-      self.value = self.default_value or 0.5
-      if self.valueChanged then
-        self:valueChanged()
-      end
-    end
   end
 end
 function Slider:draw()
-  setColor(0xffffff, 0.15)
+  if self.hidden then
+    return
+  end
+  setColor(self.color or 0x333333)
   gfx.rect(self.x, self.y + (self.h - 6) / 2, self.w, 6)
 end
 
 SliderKnob = instance(Element)
 function SliderKnob:draw()
+  if self.parent.hidden then
+    return
+  end
   if self.mouse_hold then
-    setColor(0x999999)
+    setColor(self.color_active or 0x999999)
+  elseif self:hitTest() then
+    setColor(self.color_hover or 0xffffff)
   else
-    setColor(0xeeeeee)
+    setColor(self.color or 0xcccccc)
   end
   self.x = self.parent.value * self.parent.w + self.parent.x - self.w / 2
   gfx.rect(self.x, self.y, self.w, self.h)
 end
 function SliderKnob:mouseDown()
+  if self.parent.hidden then
+    return
+  end
   if self:hitTest() then
     self.mouse_hold = true
   end
@@ -169,10 +177,30 @@ function SliderKnob:mouseUp()
   self.mouse_hold = false
 end
 
-_redraw = true
+gfx.clear = 0x1e1e1e -- GBR order
+gfx.setfont(1, "Verdana", 13)
+gfx.setfont(2, "Verdana", 16)
+gfx.init(
+  _scriptName,
+  380,
+  340,
+  tonumber(reaper.GetExtState("neutrino", "dock")) or 0,
+  tonumber(reaper.GetExtState("neutrino", "wndx")) or 100,
+  tonumber(reaper.GetExtState("neutrino", "wndy")) or 100
+)
+
+function quit()
+  local d, x, y, w, h = gfx.dock(-1, 0, 0, 0, 0)
+  reaper.SetExtState("neutrino", "dock", d, true)
+  reaper.SetExtState("neutrino", "wndx", x, true)
+  reaper.SetExtState("neutrino", "wndy", y, true)
+  gfx.quit()
+end
+reaper.atexit(quit)
+
 function runloop()
   local function call(event)
-    for _, obj in pairs(Element.objects) do
+    for _, obj in pairs(_objects) do
       if obj[event] ~= nil then
         obj[event](obj)
       end
@@ -181,7 +209,6 @@ function runloop()
 
   local mousedown = gfx.mouse_cap & 1
   if mousedown ~= _mousedown then
-    _redraw = true
     if mousedown ~= 0 then
       call("mouseDown")
     else
@@ -190,11 +217,9 @@ function runloop()
   end
   _mousedown = mousedown
 
-  if _redraw then
-    -- _redraw = false
-    call("update")
-    call("draw")
-  end
+  call("update")
+  gfx.setfont(1)
+  call("draw")
 
   gfx.update()
   local c = gfx.getchar()
@@ -616,38 +641,42 @@ extState =
   }
 )
 
-ModelLabel = Label:new({x = 20, y = 15, w = 140, h = 20, str = "Model", flag = 4})
-SelectModelButton =
-  Button:new(
+modelLabel = Label:spawn({x = 20, y = 15, w = 140, h = 20, text = "Model", flag = 4})
+selectModelButton =
+  Button:spawn(
   {
     x = 20,
     y = 35,
     w = 140,
     h = 30,
-    color = 0x202D29,
-    str = extState:get("modelDir"),
+    color = 0x193028,
+    color_hover = 0x2e4a40,
+    text = extState:get("modelDir"),
     click = function(self)
       local list = listModels()
       local t = gfx.showmenu(table.concat(list, "|"))
       if t ~= 0 then
         local modelDir = tostring(list[t])
         extState:set("modelDir", modelDir)
-        self.str = modelDir
+        self.text = modelDir
       end
     end
   }
 )
-StartSynthesisButton =
-  Button:new(
+selectModelMark = Label:spawn({x = 130, y = 35, w = 30, h = 30, text = "⏷"})
+
+startSynthesisButton =
+  Button:spawn(
   {
     x = 180,
     y = 25,
     w = 180,
     h = 40,
-    color = 0x205E4B,
+    color = 0x094e36,
+    color_hover = 0x0d724f,
     update = function(self)
       local items_count = reaper.CountSelectedMediaItems(0)
-      self.str = string.format("合成 (%dアイテム選択中)", items_count)
+      self.text = string.format("START(%d items selected)", items_count)
     end,
     click = function(self)
       reaper.Undo_BeginBlock()
@@ -663,9 +692,9 @@ StartSynthesisButton =
   }
 )
 
-StyleShiftLabel = Label:new({x = 30, y = 75, w = 90, h = 20, str = "StyleShift", flag = 4})
-StyleShiftSlider =
-  Slider:new(
+styleShiftLabel = Label:spawn({x = 30, y = 75, w = 90, h = 20, text = "StyleShift", flag = 4})
+styleShiftSlider =
+  Slider:spawn(
   {
     x = 120,
     y = 75,
@@ -675,129 +704,148 @@ StyleShiftSlider =
     valueChanged = function(self)
       local styleShift = string.format("%d", self.value)
       extState:set("styleShift", styleShift)
-      StyleShiftValueLabel.str = styleShift
+      styleShiftValueLabel.text = styleShift
     end
   }
 )
-StyleShiftValueLabel = Label:new({x = 320, y = 75, w = 40, h = 20, str = extState:get("styleShift")})
+styleShiftValueLabel = Label:spawn({x = 320, y = 75, w = 40, h = 20, text = extState:get("styleShift")})
 
-VocoderLabel = Label:new({x = 20, y = 100, w = 90, h = 20, str = "Vocoder", flag = 4})
-WorldButton =
-  Button:new(
+vocoderLabel = Label:spawn({x = 20, y = 100, w = 90, h = 20, text = "Vocoder", flag = 4})
+worldButton =
+  Button:spawn(
   {
     x = 20,
     y = 120,
     w = 140,
     h = 30,
-    color = extState:get("selectedVocoder") == "WORLD" and 0x202D29 or 0x111111,
-    str = "WORLD",
+    color_hover = 0x2e4a40,
+    text = "WORLD",
     click = function(self)
       extState:set("selectedVocoder", "WORLD")
-      self.color = 0x202D29
-      NsfButton.color = 0x111111
+      tabUpdate()
     end
   }
 )
-NsfButton =
-  Button:new(
+worldButtonMark = Label:spawn({x = 130, y = 120, w = 30, h = 30, text = "✓"})
+nsfButton =
+  Button:spawn(
   {
     x = 160,
     y = 120,
     w = 140,
     h = 30,
-    color = extState:get("selectedVocoder") == "NSF" and 0x202D29 or 0x111111,
-    str = "NSF",
+    color_hover = 0x2e4a40,
+    text = "NSF",
     click = function(self)
       extState:set("selectedVocoder", "NSF")
-      self.color = 0x202D29
-      WorldButton.color = 0x111111
+      tabUpdate()
     end
   }
 )
-TabPage =
-  Element:new(
-  {
-    x = 20,
-    y = 150,
-    w = 340,
-    h = 70,
-    draw = function(self)
-      setColor(0x202D29)
-      gfx.rect(self.x, self.y, self.w, self.h)
-    end
-  }
-)
+nsfButtonMark = Label:spawn({x = 270, y = 120, w = 30, h = 30, text = "✓"})
+tabPageBackground = Label:spawn({x = 20, y = 150, w = 340, h = 70, color = 0x193028})
 
-PitchShiftLabel = Label:new({x = 30, y = 160, w = 90, h = 20, str = "PitchShift", flag = 4})
-PitchShiftSlider =
-  Slider:new(
+worldTabPage = {}
+worldTabPage.pitchShiftLabel = Label:spawn({x = 30, y = 160, w = 90, h = 20, text = "PitchShift", flag = 4})
+worldTabPage.pitchShiftSlider =
+  Slider:spawn(
   {
     x = 120,
     y = 160,
     w = 200,
     h = 20,
+    color = 0x424D49,
     value = tonumber(extState:get("pitchShift")) / 2,
     valueChanged = function(self)
       local pitchShift = string.format("%1.2f", self.value * 2)
       extState:set("pitchShift", pitchShift)
-      PitchShiftValueLabel.str = pitchShift
+      worldTabPage.pitchShiftValueLabel.text = pitchShift
     end
   }
 )
-PitchShiftValueLabel =
-  Label:new(
-  {
-    x = 320,
-    y = 160,
-    w = 40,
-    h = 20,
-    str = extState:get("pitchShift")
-  }
-)
-
-FormantShiftLabel = Label:new({x = 30, y = 190, w = 90, h = 20, str = "FormantShift", flag = 4})
-FormantShiftSlider =
-  Slider:new(
+worldTabPage.pitchShiftValueLabel = Label:spawn({x = 320, y = 160, w = 40, h = 20, text = extState:get("pitchShift")})
+worldTabPage.formantShiftLabel = Label:spawn({x = 30, y = 190, w = 90, h = 20, text = "FormantShift", flag = 4})
+worldTabPage.formantShiftSlider =
+  Slider:spawn(
   {
     x = 120,
     y = 190,
     w = 200,
     h = 20,
+    color = 0x424D49,
     value = tonumber(extState:get("formantShift")) / 2,
     valueChanged = function(self)
       local formantShift = string.format("%1.2f", self.value * 2)
       extState:set("formantShift", formantShift)
-      FormantShiftValueLabel.str = formantShift
+      worldTabPage.formantShiftValueLabel.text = formantShift
     end
   }
 )
-FormantShiftValueLabel =
-  Label:new(
-  {
-    x = 320,
-    y = 190,
-    w = 40,
-    h = 20,
-    str = extState:get("formantShift")
-  }
-)
+worldTabPage.formantShiftValueLabel =
+  Label:spawn({x = 320, y = 190, w = 40, h = 20, text = extState:get("formantShift")})
 
-SettingsLabel = Label:new({x = 30, y = 230, w = 90, h = 20, str = "Settings", flag = 4})
-SelectNeutrinoPathButton =
-  Button:new(
+nsfTabPage = {}
+nsfTabPage.noSettingsLabel = Label:spawn({x = 30, y = 160, w = 90, h = 20, text = "No settings", flag = 4})
+
+function tabUpdate()
+  if extState:get("selectedVocoder") == "WORLD" then
+    worldButton.color = 0x193028
+    worldButtonMark.hidden = false
+    nsfButton.color = 0x151515
+    nsfButtonMark.hidden = true
+    for _, v in pairs(worldTabPage) do
+      v.hidden = false
+    end
+    for _, v in pairs(nsfTabPage) do
+      v.hidden = true
+    end
+  elseif extState:get("selectedVocoder") == "NSF" then
+    worldButton.color = 0x151515
+    worldButtonMark.hidden = true
+    nsfButton.color = 0x193028
+    nsfButtonMark.hidden = false
+    for _, v in pairs(worldTabPage) do
+      v.hidden = true
+    end
+    for _, v in pairs(nsfTabPage) do
+      v.hidden = false
+    end
+  end
+end
+tabUpdate()
+
+settingsLabel = Label:spawn({x = 20, y = 230, w = 140, h = 20, text = "Settings", flag = 4})
+settingsBackground = Label:spawn({x = 20, y = 250, w = 340, h = 65, color = 0x151515})
+neutrinoPathLabel = Label:spawn({x = 30, y = 260, w = 320, h = 20, text = "NEUTRINO directory:", flag = 4})
+neutrinoAvailableLabel = Label:spawn({x = 150, y = 260, w = 20, h = 20, color_text = 0x00aa00, text = "✓"})
+function updateNeutrinoAvailableLabel()
+  if checkNeutrinoAvailable() then
+    neutrinoAvailableLabel.color_text = 0x00aa00
+    neutrinoAvailableLabel.text = "✓"
+  else
+    neutrinoAvailableLabel.color_text = 0xff0000
+    neutrinoAvailableLabel.text = "×"
+  end
+end
+updateNeutrinoAvailableLabel()
+neutrinoPathButton =
+  Button:spawn(
   {
     x = 30,
-    y = 250,
+    y = 280,
     w = 320,
     h = 20,
+    color = 0x111111,
+    color_text = 0xcccccc,
+    text = extState:get("neutrinoPath"),
     flag = 4,
-    str = extState:get("neutrinoPath"),
     click = function(self)
-      local retval, folder = reaper.JS_Dialog_BrowseForFolder("test", "")
+      local retval, folder = reaper.JS_Dialog_BrowseForFolder("Select NEUTRINO directory", "")
       if retval == 1 then
         local neutrinoPath = folder .. "\\"
         extState:set("neutrinoPath", neutrinoPath)
-        self.str = neutrinoPath
+        self.text = neutrinoPath
+        updateNeutrinoAvailableLabel()
       end
     end
   }
