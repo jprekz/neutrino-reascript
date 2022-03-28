@@ -335,15 +335,26 @@ function MusicXmlBuilder:putNote(duration, pitch, lyric, tie)
   elseif tie == "stop_start" then
     tieXml = [[<tie type="stop"/><tie type="start"/>]]
   end
+  local breathXml = [[]]
+  if string.sub(lyric, -2) == "br" then
+    lyric = string.sub(lyric, 1, -3)
+    if tie == nil or tie == "stop" then
+      breathXml = [[<notations><articulations><breath-mark/></articulations></notations>]]
+    end
+  end
+  local lyricXml = [[]]
+  if tie == nil or tie == "start" then
+    lyricXml = [[<lyric> <syllabic>single</syllabic> <text>]] .. lyric .. [[</text> </lyric>]]
+  end
   local pitchText = step .. alterText .. octave
-  print(duration, pitchText, lyric, tie)
+  print(duration, pitchText, lyricXml == [[]] and "" or lyric, tie or "", breathXml == [[]] and "" or "br")
   self.xml =
     self.xml ..
     string.format(
       [[<note>
         <pitch><step>%s</step>%s<octave>%d</octave></pitch>
-        <duration>%d</duration>%s
-        <lyric> <syllabic>single</syllabic> <text>%s</text> </lyric>
+        <duration>%d</duration>%s%s
+        %s
       </note>
       ]],
       step,
@@ -351,7 +362,8 @@ function MusicXmlBuilder:putNote(duration, pitch, lyric, tie)
       octave,
       duration,
       tieXml,
-      lyric
+      breathXml,
+      lyricXml
     )
 end
 function MusicXmlBuilder:putRestNote(duration)
